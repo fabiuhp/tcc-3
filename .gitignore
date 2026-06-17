@@ -1,0 +1,26 @@
+.env
+.env.*
+!.env.example
+openspec
+.opencode
+.codex
+inicial.md
+output/
+uploads/
+agents.md
+
+# Local input/output artifacts
+*.mp3
+*.wav
+*.m4a
+*.pdf
+docs/diagrams/*.png
+
+# Go/local tooling artifacts
+/requirement-pipeline
+coverage.out
+*.test
+
+# OS/editor noise
+.DS_Store
+*.log

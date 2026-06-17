@@ -1,0 +1,19 @@
+body {
+  background: #f7f7f5;
+}
+
+.upload-card {
+  max-width: 520px;
+  width: 100%;
+  border-radius: 1.25rem;
+}
+
+.loading {
+  display: none;
+}
+
+.loading.is-visible {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

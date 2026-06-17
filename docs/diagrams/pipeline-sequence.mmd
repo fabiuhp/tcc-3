@@ -1,0 +1,34 @@
+sequenceDiagram
+    autonumber
+    actor Usuario as Usuário
+    participant Web as Frontend Web
+    participant Backend as Backend Go
+    participant Mongo as MongoDB
+    participant STT as OpenAI Transcrição
+    participant LLM as OpenAI Texto
+    participant PDF as Gerador PDF
+
+    Usuario->>Web: Envia áudio da reunião
+    Web->>Backend: POST /process
+    Backend->>Mongo: Cria meeting e pipeline_run
+    Backend->>STT: Solicita transcrição do áudio
+    STT-->>Backend: Retorna transcript
+    Backend->>Mongo: Salva stage e artifact transcript
+    Backend->>LLM: Extrai requisitos candidatos
+    LLM-->>Backend: Retorna requirement_draft
+    Backend->>Mongo: Salva rascunho de requisitos
+    Backend->>LLM: Revisa requisitos
+    LLM-->>Backend: Retorna reviewed_requirements
+    Backend->>LLM: Analisa lacunas
+    LLM-->>Backend: Retorna gap_analysis
+    Backend->>LLM: Refina requisitos
+    LLM-->>Backend: Retorna refined_requirements
+    Backend->>LLM: Gera diagramas Mermaid do negócio
+    LLM-->>Backend: Retorna business_diagrams
+    Backend->>LLM: Gera documentação final
+    LLM-->>Backend: Retorna SRS, histórias, critérios e casos de uso
+    Backend->>Mongo: Salva stages, artifacts, prompts, modelos e métricas
+    Backend->>PDF: Exporta PDF com requisitos e diagramas do negócio
+    PDF-->>Backend: Arquivo PDF gerado
+    Backend-->>Web: Retorna link de download
+    Web-->>Usuario: Exibe botão para baixar PDF
