@@ -26,7 +26,7 @@ func main() {
 	language := flag.String("language", "", "meeting language")
 	meetingID := flag.String("meeting-id", "", "existing meeting id to reprocess")
 	outputDir := flag.String("out", "output", "directory for generated files")
-	exportRunID := flag.String("export-run-id", "", "existing pipeline run id to export refined requirements PDF without reprocessing")
+	exportRunID := flag.String("export-run-id", "", "existing pipeline run id to export requirements Markdown without reprocessing")
 	serveWeb := flag.Bool("web", false, "start the browser upload frontend instead of running the CLI pipeline")
 	addr := flag.String("addr", ":8080", "HTTP address for -web mode")
 	uploadDir := flag.String("uploads", "uploads", "directory for temporary web uploads")
@@ -61,11 +61,11 @@ func main() {
 	}
 
 	if *exportRunID != "" {
-		pdfPath, err := exportRun(ctx, store, *exportRunID, *outputDir)
+		markdownPath, err := exportRun(ctx, store, *exportRunID, *outputDir)
 		if err != nil {
-			log.Fatalf("export refined requirements PDF: %v", err)
+			log.Fatalf("export requirements Markdown: %v", err)
 		}
-		fmt.Printf("refined requirements PDF generated: %s\n", pdfPath)
+		fmt.Printf("requirements Markdown generated: %s\n", markdownPath)
 		return
 	}
 
@@ -80,11 +80,11 @@ func main() {
 	}
 	fmt.Printf("pipeline run completed: %s\n", run.ID)
 
-	pdfPath, err := exportRun(ctx, store, run.ID, *outputDir)
+	markdownPath, err := exportRun(ctx, store, run.ID, *outputDir)
 	if err != nil {
-		log.Fatalf("export refined requirements PDF: %v", err)
+		log.Fatalf("export requirements Markdown: %v", err)
 	}
-	fmt.Printf("refined requirements PDF generated: %s\n", pdfPath)
+	fmt.Printf("requirements Markdown generated: %s\n", markdownPath)
 }
 
 func buildRunner(ctx context.Context, store ports.Store, cfg config.Config) (*pipeline.Runner, error) {
@@ -112,5 +112,5 @@ func exportRun(ctx context.Context, store interface {
 	if err != nil {
 		return "", err
 	}
-	return export.WriteRefinedRequirementsPDF(outputDir, audit)
+	return export.WriteRequirementsMarkdown(outputDir, audit)
 }

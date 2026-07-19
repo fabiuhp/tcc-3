@@ -27,9 +27,47 @@ func TestServerRendersUploadForm(t *testing.T) {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"Gerar PDF de requisitos", "name=\"audio\"", "Processar audio"} {
+	for _, want := range []string{"Gerar documento de requisitos", "name=\"audio\"", "Processar audio"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %q", want)
+		}
+	}
+}
+
+func TestServerRendersProcessingFeedback(t *testing.T) {
+	server := newTestServer(t, &fakeRunner{}, &fakeExporter{})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	body := recorder.Body.String()
+	for _, want := range []string{
+		`id="processing-state"`,
+		`role="status"`,
+		`aria-live="polite"`,
+		`form.setAttribute('aria-busy', 'true')`,
+		`HTMLFormElement.prototype.submit.call(form)`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing processing feedback %q", want)
+		}
+	}
+}
+
+func TestServerServesProcessingStyles(t *testing.T) {
+	server := newTestServer(t, &fakeRunner{}, &fakeExporter{})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/static/app.css", nil)
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	for _, want := range []string{".processing-state", ".processing-spinner", "@keyframes processing-spin"} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("stylesheet missing %q", want)
 		}
 	}
 }
@@ -80,37 +118,40 @@ func TestServerProcessesUploadAndReturnsDownload(t *testing.T) {
 	if exporter.runID != "run-123" {
 		t.Fatalf("exporter run id = %q, want run-123", exporter.runID)
 	}
-	if !strings.Contains(recorder.Body.String(), "/downloads/result.pdf") {
+	if !strings.Contains(recorder.Body.String(), "/downloads/result.md") {
 		t.Fatalf("response did not include download link")
 	}
 }
 
-func TestServerServesPDFDownloadWithHeaders(t *testing.T) {
+func TestServerServesMarkdownDownloadWithHeaders(t *testing.T) {
 	outputDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outputDir, "result.pdf"), []byte("pdf"), 0o644); err != nil {
-		t.Fatalf("write pdf: %v", err)
+	if err := os.WriteFile(filepath.Join(outputDir, "result.md"), []byte("# Requirements"), 0o644); err != nil {
+		t.Fatalf("write markdown: %v", err)
 	}
 	server, err := NewServer(&fakeRunner{}, &fakeExporter{}, Config{UploadDir: t.TempDir(), OutputDir: outputDir, DefaultLanguage: "pt-BR"})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/downloads/result.pdf", nil)
+	request := httptest.NewRequest(http.MethodGet, "/downloads/result.md", nil)
 
 	server.Handler().ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-	if got := recorder.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") || !strings.Contains(got, "result.pdf") {
+	if got := recorder.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") || !strings.Contains(got, "result.md") {
 		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.Contains(got, "text/markdown") {
+		t.Fatalf("Content-Type = %q, want text/markdown", got)
 	}
 }
 
 func TestServerRejectsUnsafeDownloadPath(t *testing.T) {
 	server := newTestServer(t, &fakeRunner{}, &fakeExporter{})
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/downloads/%2e%2e%2fsecret.pdf", nil)
+	request := httptest.NewRequest(http.MethodGet, "/downloads/%2e%2e%2fsecret.md", nil)
 
 	server.Handler().ServeHTTP(recorder, request)
 
@@ -174,5 +215,5 @@ func (f *fakeExporter) Export(_ context.Context, runID string) (string, error) {
 	if f.err != nil {
 		return "", f.err
 	}
-	return filepath.Join(os.TempDir(), "result.pdf"), nil
+	return filepath.Join(os.TempDir(), "result.md"), nil
 }

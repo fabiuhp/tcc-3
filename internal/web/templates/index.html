@@ -12,8 +12,8 @@
     <section class="upload-card card border-0 shadow-sm">
       <div class="card-body p-4 p-md-5">
         <p class="text-uppercase text-secondary small mb-2">Requirement Pipeline</p>
-        <h1 class="h3 mb-3">Gerar PDF de requisitos</h1>
-        <p class="text-secondary mb-4">Envie o audio da reuniao, aguarde o processamento e baixe o PDF final.</p>
+        <h1 class="h3 mb-3">Gerar documento de requisitos</h1>
+        <p class="text-secondary mb-4">Envie o audio da reuniao, aguarde o processamento e baixe o Markdown final.</p>
 
         {{if .Error}}
         <div class="alert alert-danger" role="alert">{{.Error}}</div>
@@ -24,7 +24,7 @@
         {{end}}
 
         {{if .DownloadURL}}
-        <a class="btn btn-success w-100 mb-4" href="{{.DownloadURL}}">Baixar PDF</a>
+        <a class="btn btn-success w-100 mb-4" href="{{.DownloadURL}}">Baixar Markdown</a>
         {{end}}
 
         <form id="upload-form" action="/process" method="post" enctype="multipart/form-data">
@@ -40,19 +40,64 @@
             <label class="form-label" for="audio">Audio</label>
             <input class="form-control" id="audio" name="audio" type="file" accept="audio/*" required>
           </div>
-          <button id="submit-button" class="btn btn-primary w-100" type="submit">Processar audio</button>
-          <div id="loading" class="loading text-secondary small mt-3" aria-live="polite">
-            <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
-            Processando. Isso pode levar alguns minutos.
+          <button id="submit-button" class="btn btn-primary w-100" type="submit">
+            <span id="submit-spinner" class="button-spinner me-2" aria-hidden="true" hidden></span>
+            <span id="submit-label">Processar audio</span>
+          </button>
+
+          <div id="processing-state" class="processing-state mt-4" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden>
+            <span class="processing-spinner" aria-hidden="true"></span>
+            <div class="processing-copy">
+              <strong>Enviando e processando o audio</strong>
+              <span>Isso pode levar alguns minutos. Mantenha esta pagina aberta enquanto preparamos o documento.</span>
+              <span class="processing-track" aria-hidden="true"><span></span></span>
+            </div>
           </div>
         </form>
       </div>
     </section>
   </main>
   <script>
-    document.getElementById('upload-form').addEventListener('submit', function () {
-      document.getElementById('loading').classList.add('is-visible');
-      document.getElementById('submit-button').disabled = true;
+    const form = document.getElementById('upload-form');
+    const submitButton = document.getElementById('submit-button');
+    const submitLabel = document.getElementById('submit-label');
+    const submitSpinner = document.getElementById('submit-spinner');
+    const processingState = document.getElementById('processing-state');
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (form.dataset.submitting === 'true') {
+        return;
+      }
+
+      form.dataset.submitting = 'true';
+      form.classList.add('is-processing');
+      form.setAttribute('aria-busy', 'true');
+      submitButton.disabled = true;
+      submitLabel.textContent = 'Processando...';
+      submitSpinner.hidden = false;
+      processingState.hidden = false;
+      processingState.focus({ preventScroll: true });
+      processingState.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          HTMLFormElement.prototype.submit.call(form);
+        });
+      });
+    });
+
+    window.addEventListener('pageshow', function (event) {
+      if (!event.persisted) {
+        return;
+      }
+      delete form.dataset.submitting;
+      form.classList.remove('is-processing');
+      form.removeAttribute('aria-busy');
+      submitButton.disabled = false;
+      submitLabel.textContent = 'Processar audio';
+      submitSpinner.hidden = true;
+      processingState.hidden = true;
     });
   </script>
 </body>

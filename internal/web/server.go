@@ -131,17 +131,17 @@ func (s *Server) process(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pdfPath, err := s.exporter.Export(r.Context(), run.ID)
+	markdownPath, err := s.exporter.Export(r.Context(), run.ID)
 	if err != nil {
-		s.logger.Printf("export pdf: %v", err)
-		s.render(w, pageData{DefaultLanguage: language, Error: "O processamento terminou, mas nao foi possivel gerar o PDF."})
+		s.logger.Printf("export markdown: %v", err)
+		s.render(w, pageData{DefaultLanguage: language, Error: "O processamento terminou, mas nao foi possivel gerar o Markdown."})
 		return
 	}
 
-	name := filepath.Base(pdfPath)
+	name := filepath.Base(markdownPath)
 	s.render(w, pageData{
 		DefaultLanguage: language,
-		Success:         "PDF gerado com sucesso.",
+		Success:         "Markdown gerado com sucesso.",
 		DownloadURL:     "/downloads/" + url.PathEscape(name),
 		DownloadName:    name,
 	})
@@ -185,7 +185,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	name, err := safePDFName(strings.TrimPrefix(r.URL.Path, "/downloads/"))
+	name, err := safeMarkdownName(strings.TrimPrefix(r.URL.Path, "/downloads/"))
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -198,18 +198,18 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	}
 	defer root.Close()
 
-	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	http.ServeFileFS(w, r, root.FS(), name)
 }
 
-func safePDFName(value string) (string, error) {
+func safeMarkdownName(value string) (string, error) {
 	name, err := url.PathUnescape(value)
 	if err != nil {
 		return "", err
 	}
-	if name == "" || name != filepath.Base(name) || filepath.Ext(name) != ".pdf" || strings.Contains(name, string(filepath.Separator)) {
-		return "", fmt.Errorf("invalid pdf name")
+	if name == "" || name != filepath.Base(name) || filepath.Ext(name) != ".md" || strings.Contains(name, string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid markdown name")
 	}
 	return name, nil
 }

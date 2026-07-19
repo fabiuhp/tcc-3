@@ -75,7 +75,6 @@ type StageExecution struct {
 	StartedAt         time.Time    `bson:"started_at" json:"started_at"`
 	FinishedAt        *time.Time   `bson:"finished_at,omitempty" json:"finished_at,omitempty"`
 	Model             string       `bson:"model,omitempty" json:"model,omitempty"`
-	PromptVersion     string       `bson:"prompt_version,omitempty" json:"prompt_version,omitempty"`
 	DurationMillis    int64        `bson:"duration_millis" json:"duration_millis"`
 	Tokens            TokenMetrics `bson:"tokens" json:"tokens"`
 	InputArtifactIDs  []string     `bson:"input_artifact_ids" json:"input_artifact_ids"`
@@ -94,7 +93,6 @@ type Artifact struct {
 type Prompt struct {
 	ID          string    `bson:"_id" json:"id"`
 	StageName   StageName `bson:"stage_name" json:"stage_name"`
-	Version     string    `bson:"version" json:"version"`
 	Description string    `bson:"description" json:"description"`
 	Template    string    `bson:"template" json:"template"`
 	CreatedAt   time.Time `bson:"created_at" json:"created_at"`

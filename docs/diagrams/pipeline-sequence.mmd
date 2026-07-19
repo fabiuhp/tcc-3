@@ -6,7 +6,8 @@ sequenceDiagram
     participant Mongo as MongoDB
     participant STT as OpenAI Transcrição
     participant LLM as OpenAI Texto
-    participant PDF as Gerador PDF
+    participant Normalizer as Normalização Go
+    participant Markdown as Exportador Markdown
 
     Usuario->>Web: Envia áudio da reunião
     Web->>Backend: POST /process
@@ -14,21 +15,28 @@ sequenceDiagram
     Backend->>STT: Solicita transcrição do áudio
     STT-->>Backend: Retorna transcript
     Backend->>Mongo: Salva stage e artifact transcript
-    Backend->>LLM: Extrai requisitos candidatos
-    LLM-->>Backend: Retorna requirement_draft
-    Backend->>Mongo: Salva rascunho de requisitos
-    Backend->>LLM: Revisa requisitos
-    LLM-->>Backend: Retorna reviewed_requirements
+    Backend->>LLM: Extrai requisitos em JSON
+    LLM-->>Normalizer: Candidatos e citações
+    Normalizer->>Normalizer: Valida evidências e atribui REQ IDs
+    Normalizer->>Mongo: Persiste requirement_draft
+    Backend->>LLM: Revisa lista completa
+    LLM-->>Normalizer: IDs, redação, status e findings
+    Normalizer->>Normalizer: Reanexa evidências originais
+    Normalizer->>Mongo: Persiste reviewed_requirements
     Backend->>LLM: Analisa lacunas
-    LLM-->>Backend: Retorna gap_analysis
-    Backend->>LLM: Refina requisitos
-    LLM-->>Backend: Retorna refined_requirements
+    LLM-->>Normalizer: Lacunas e perguntas
+    Normalizer->>Normalizer: Valida referências e atribui GAP IDs
+    Normalizer->>Mongo: Persiste gap_analysis
+    Backend->>LLM: Refina sem completar lacunas
+    LLM-->>Normalizer: Redação e status
+    Normalizer->>Normalizer: Reanexa tipo, evidências e relações
+    Normalizer->>Mongo: Persiste refined_requirements
     Backend->>LLM: Gera diagramas Mermaid do negócio
     LLM-->>Backend: Retorna business_diagrams
     Backend->>LLM: Gera documentação final
     LLM-->>Backend: Retorna SRS, histórias, critérios e casos de uso
     Backend->>Mongo: Salva stages, artifacts, prompts, modelos e métricas
-    Backend->>PDF: Exporta PDF com requisitos e diagramas do negócio
-    PDF-->>Backend: Arquivo PDF gerado
+    Backend->>Markdown: Exporta requisitos, evidências e Mermaid
+    Markdown-->>Backend: Arquivo Markdown gerado
     Backend-->>Web: Retorna link de download
-    Web-->>Usuario: Exibe botão para baixar PDF
+    Web-->>Usuario: Exibe botão para baixar Markdown

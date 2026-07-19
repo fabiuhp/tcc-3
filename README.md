@@ -1,17 +1,20 @@
 # Requirement Pipeline
 
-MVP em Go para transformar o áudio de uma reunião de elicitação de requisitos em artefatos auditáveis de engenharia de requisitos.
+MVP em Go para transformar o áudio de uma reunião de elicitação em requisitos estruturados, rastreáveis e auditáveis. A pipeline usa IA para transcrição e análise textual, mas mantém na aplicação a responsabilidade por IDs, evidências, validação de schemas e persistência.
+
+Este README também registra decisões metodológicas da pipeline para apoiar a futura escrita do artigo científico do TCC.
 
 ## Requisitos
 
 - Go 1.26 ou mais recente
 - MongoDB acessível pela aplicação
 - Chave da OpenAI em `OPENAI_API_KEY`
-- Node.js com `npx` para renderizar os diagramas Mermaid no PDF quando o artifact `business_diagrams` estiver presente
+
+Node.js, Puppeteer e Mermaid CLI não são necessários em runtime. Os diagramas são mantidos como blocos Mermaid no documento Markdown final.
 
 ## Configuração
 
-A aplicação carrega o arquivo `.env` automaticamente e depois lê as variáveis de ambiente. Variáveis exportadas no ambiente têm prioridade sobre os valores do `.env`.
+A aplicação carrega `.env` automaticamente e depois lê as variáveis de ambiente. Variáveis exportadas no ambiente têm prioridade sobre o arquivo.
 
 - `OPENAI_API_KEY`: obrigatória para execução real com OpenAI
 - `OPENAI_TRANSCRIPTION_MODEL`: padrão `gpt-4o-transcribe`
@@ -20,51 +23,83 @@ A aplicação carrega o arquivo `.env` automaticamente e depois lê as variávei
 - `MONGO_DATABASE`: padrão `requirement_pipeline`
 - `PIPELINE_DEFAULT_LANGUAGE`: padrão `pt-BR`
 
-## Execução Via CLI
+Para iniciar um MongoDB local com Docker:
 
 ```bash
-go run ./cmd/requirement-pipeline -title "Reunião de descoberta" -audio ./meeting.mp3 -language pt-BR
+docker run -d \
+  --name requirement-pipeline-mongo \
+  -p 27017:27017 \
+  -v requirement-pipeline-mongo-data:/data/db \
+  mongo:7
 ```
 
-Ao final de uma execução bem-sucedida, a CLI também exporta o artefato de requisitos refinados para:
+Se o container já existir:
+
+```bash
+docker start requirement-pipeline-mongo
+```
+
+## Execução
+
+### CLI
+
+```bash
+go run ./cmd/requirement-pipeline \
+  -title "Reunião de descoberta" \
+  -audio ./meeting.mp3 \
+  -language pt-BR
+```
+
+Ao final, a CLI exporta:
 
 ```text
-output/refined_requirements_<pipeline-run-id>_<meeting-id>.pdf
+output/requirements_<pipeline-run-id>_<meeting-id>.md
 ```
 
-Você pode escolher outro diretório de saída com `-out`:
+Outro diretório pode ser escolhido com `-out`:
 
 ```bash
-go run ./cmd/requirement-pipeline -title "Reunião de descoberta" -audio ./meeting.mp3 -out ./exports
+go run ./cmd/requirement-pipeline \
+  -title "Reunião de descoberta" \
+  -audio ./meeting.mp3 \
+  -out ./exports
 ```
 
-Para reprocessar uma reunião existente, passe `-meeting-id <id>`. O reprocessamento cria uma nova execução da pipeline e preserva execuções, etapas e artefatos anteriores.
+Para reprocessar uma reunião existente:
 
-Para exportar um PDF de uma execução existente sem reprocessar e sem chamar a OpenAI novamente:
+```bash
+go run ./cmd/requirement-pipeline -meeting-id "<meeting-id>"
+```
+
+Cada reprocessamento cria um novo `pipeline_run`.
+
+Para exportar uma execução sem chamar novamente a OpenAI:
 
 ```bash
 go run ./cmd/requirement-pipeline -export-run-id "<pipeline-run-id>"
 ```
 
-## Frontend Web
-
-Inicie o frontend minimalista de upload com:
+### Frontend Web
 
 ```bash
 go run ./cmd/requirement-pipeline -web -addr :8080
 ```
 
-Depois abra `http://localhost:8080`, envie um arquivo de áudio, aguarde o processamento e use o botão de download para baixar o PDF gerado.
+Abra `http://localhost:8080`, envie o áudio e aguarde o processamento. Durante o envio, a página mostra um estado visual de loading, bloqueia envios duplicados e informa que a operação pode levar alguns minutos.
 
-Os arquivos de áudio enviados são armazenados temporariamente em `uploads/` por padrão e removidos após o processamento. Os PDFs gerados são armazenados em `output/` por padrão e servidos pela rota `/downloads/<file>.pdf`. Use `-uploads` e `-out` para alterar esses diretórios.
+Uploads são salvos temporariamente em `uploads/` e removidos ao final da requisição. Documentos Markdown são salvos em `output/` e servidos por `/downloads/<arquivo>.md`.
 
-## Como O Sistema Funciona
+## Fluxo Da Pipeline
 
-O sistema recebe um arquivo de áudio de reunião, executa uma sequência fixa de etapas com apoio de IA, salva cada passo da execução no MongoDB e exporta um PDF a partir do artefato de requisitos refinados.
-
-### Diagrama De Sequência
-
-O diagrama abaixo mostra o fluxo completo desde o envio do áudio até o download do PDF:
+| Ordem | Etapa | Entrada principal | Saída | Contrato |
+| --- | --- | --- | --- | --- |
+| 1 | `audio_transcription` | Áudio | `transcript` | Texto |
+| 2 | `requirement_extraction` | Transcrição | `requirement_draft` | JSON validado |
+| 3 | `requirement_review` | Rascunho completo | `reviewed_requirements` | JSON validado |
+| 4 | `gap_analysis` | Requisitos revisados | `gap_analysis` | JSON validado |
+| 5 | `requirement_refinement` | Requisitos revisados e lacunas | `refined_requirements` | JSON validado |
+| 6 | `diagram_generation` | Requisitos refinados | `business_diagrams` | JSON validado |
+| 7 | `artifact_generation` | Requisitos refinados | SRS, histórias, critérios e casos de uso | JSON validado com quatro campos |
 
 ```mermaid
 sequenceDiagram
@@ -75,274 +110,510 @@ sequenceDiagram
     participant Mongo as MongoDB
     participant STT as OpenAI Transcrição
     participant LLM as OpenAI Texto
-    participant PDF as Gerador PDF
+    participant Normalizer as Normalização Go
+    participant Markdown as Exportador Markdown
 
-    Usuario->>Web: Envia áudio da reunião
+    Usuario->>Web: Envia áudio
     Web->>Backend: POST /process
     Backend->>Mongo: Cria meeting e pipeline_run
-    Backend->>STT: Solicita transcrição do áudio
-    STT-->>Backend: Retorna transcript
-    Backend->>Mongo: Salva stage e artifact transcript
-    Backend->>LLM: Extrai requisitos candidatos
-    LLM-->>Backend: Retorna requirement_draft
-    Backend->>Mongo: Salva rascunho de requisitos
-    Backend->>LLM: Revisa requisitos
-    LLM-->>Backend: Retorna reviewed_requirements
+    Backend->>STT: Transcreve áudio
+    STT-->>Backend: Texto da reunião
+    Backend->>Mongo: Persiste transcript
+    Backend->>LLM: Extrai requisitos em JSON
+    LLM-->>Normalizer: Candidatos e citações
+    Normalizer->>Normalizer: Valida evidências e atribui REQ IDs
+    Normalizer->>Mongo: Persiste requirement_draft
+    Backend->>LLM: Revisa lista completa
+    LLM-->>Normalizer: IDs, redação, status e findings
+    Normalizer->>Normalizer: Reanexa evidências originais
+    Normalizer->>Mongo: Persiste reviewed_requirements
     Backend->>LLM: Analisa lacunas
-    LLM-->>Backend: Retorna gap_analysis
-    Backend->>LLM: Refina requisitos
-    LLM-->>Backend: Retorna refined_requirements
-    Backend->>LLM: Gera diagramas Mermaid do negócio
-    LLM-->>Backend: Retorna business_diagrams
-    Backend->>LLM: Gera documentação final
-    LLM-->>Backend: Retorna SRS, histórias, critérios e casos de uso
-    Backend->>Mongo: Salva stages, artifacts, prompts, modelos e métricas
-    Backend->>PDF: Exporta PDF com requisitos e diagramas do negócio
-    PDF-->>Backend: Arquivo PDF gerado
-    Backend-->>Web: Retorna link de download
-    Web-->>Usuario: Exibe botão para baixar PDF
+    LLM-->>Normalizer: Lacunas e perguntas
+    Normalizer->>Normalizer: Valida referências e atribui GAP IDs
+    Normalizer->>Mongo: Persiste gap_analysis
+    Backend->>LLM: Refina sem completar lacunas
+    LLM-->>Normalizer: Redação e status
+    Normalizer->>Normalizer: Reanexa tipo, evidências e relações
+    Normalizer->>Mongo: Persiste refined_requirements
+    Backend->>LLM: Gera Mermaid e documentação final
+    Backend->>Mongo: Persiste artefatos finais
+    Backend->>Markdown: Exporta requisitos, evidências e Mermaid
+    Markdown-->>Web: Arquivo .md
+    Web-->>Usuario: Link de download
 ```
 
-O arquivo-fonte do diagrama fica em `docs/diagrams/pipeline-sequence.mmd`.
+O fonte desse diagrama também fica em `docs/diagrams/pipeline-sequence.mmd`.
 
-O PDF gerado pela aplicação é focado em requisitos para implementação. Ele começa com um guia de leitura para o time, mostra as categorias de requisitos (`RF`, `RN`, `RNF` e `R`), inclui um checklist para transformar o material em backlog, apresenta fluxos de negócio específicos da reunião quando disponíveis e depois apresenta os requisitos refinados com títulos e listas mais legíveis.
+## Metodologia De IA
 
-Se quiser gerar uma imagem PNG do Mermaid para usar no texto do TCC, slides ou documentação externa, execute:
+### Motivação
 
-```bash
-npx -y @mermaid-js/mermaid-cli -i docs/diagrams/pipeline-sequence.mmd -o docs/diagrams/pipeline-sequence.png -b white
+Quando extração, revisão, análise de lacunas e refinamento são tratados como textos livres, surgem quatro problemas centrais:
+
+1. Uma revisão pode produzir somente um relatório de críticas enquanto a etapa seguinte espera uma lista completa de requisitos.
+2. Instruções como "identifique requisitos implícitos" e "complete as lacunas" podem levar o modelo a promover inferências a fatos.
+3. Sem IDs e evidências obrigatórios, a rastreabilidade não pode ser verificada programaticamente.
+4. Sem contratos, cada etapa pode alterar o formato e aumentar muito o volume textual, elevando latência, custo e risco de perda de informação.
+
+A pipeline trata a saída do modelo como dado não confiável que precisa passar por normalização determinística antes de virar artefato persistido.
+
+### Separação de responsabilidades
+
+A IA é responsável por tarefas semânticas:
+
+- identificar requisitos candidatos;
+- classificar tipo e estado epistemológico;
+- revisar redação e consistência;
+- apontar lacunas;
+- melhorar clareza;
+- produzir diagramas e documentação derivada.
+
+A aplicação Go é responsável por tarefas determinísticas:
+
+- validar JSON e rejeitar campos desconhecidos;
+- atribuir IDs estáveis dentro da execução;
+- verificar evidências contra a transcrição;
+- preservar o conjunto de requisitos entre etapas;
+- preservar evidências e campos imutáveis;
+- impedir promoção indevida para `confirmed`;
+- validar referências entre `REQ` e `GAP`;
+- serializar JSON canônico para o MongoDB;
+- falhar a etapa quando o contrato não é atendido.
+
+Essa separação reduz a confiança depositada no modelo e torna parte do comportamento reproduzível por código tradicional.
+
+### Fronteira de confiança e prompt injection
+
+Todo conteúdo originado da reunião ou de um artefato anterior é delimitado nos prompts, por exemplo:
+
+```text
+<transcript_data>
+...
+</transcript_data>
 ```
 
-Se o Mermaid CLI reclamar que não encontrou o Chrome headless, instale o browser usado pelo Puppeteer:
+O prompt declara que o conteúdo delimitado é apenas dado de entrada e que instruções encontradas dentro dele não devem ser executadas. Essa medida reduz o risco de uma fala da reunião ser interpretada como comando para o modelo.
 
-```bash
-npx -y puppeteer browsers install chrome-headless-shell
-```
+Essa proteção não elimina completamente prompt injection. Uma evolução futura pode separar instruções e dados usando mensagens com papéis distintos e structured outputs nativos do provedor.
 
-O PNG em `docs/diagrams/pipeline-sequence.png` é complementar para documentação, slides ou texto do TCC. O PDF da aplicação prioriza a leitura dos requisitos por Product Owner, analistas e desenvolvedores.
+### Contratos JSON
 
-### Diagramas De Negócio No PDF
+Os artefatos intermediários são armazenados em `Artifact.Content` como JSON serializado. O tipo do artefato determina o contrato aplicado durante a validação.
 
-Depois do refinamento dos requisitos, a pipeline executa a etapa `diagram_generation`. Essa etapa solicita ao modelo de texto de IA entre 1 e 3 diagramas Mermaid específicos do negócio discutido na reunião, evitando fluxos genéricos sobre requisitos, backlog ou implementação.
+#### Rascunho de requisitos
 
-O artifact gerado é `business_diagrams` e usa JSON com esta estrutura:
+Resposta esperada da IA:
 
 ```json
 {
-  "diagrams": [
+  "requirements": [
     {
-      "title": "Fluxo de Matrícula do Aluno",
-      "type": "business_flow",
-      "description": "Mostra o caminho desde o interesse até a liberação de acesso.",
-      "mermaid": "flowchart TD\nA[Aluno interessado] --> B[Escolhe plano]\nB --> C[Acesso liberado]"
+      "type": "functional",
+      "statement": "O sistema deve permitir acompanhar o pedido.",
+      "status": "confirmed",
+      "evidence": [
+        {
+          "quote": "Eu preciso acompanhar o pedido."
+        }
+      ]
     }
   ]
 }
 ```
 
-Na exportação do PDF, a aplicação tenta renderizar cada Mermaid como PNG usando:
+Após a normalização, a aplicação acrescenta os campos determinísticos:
 
-```bash
-npx -y @mermaid-js/mermaid-cli -i <arquivo.mmd> -o <arquivo.png> -b white
+```json
+{
+  "requirements": [
+    {
+      "id": "REQ-0001",
+      "type": "functional",
+      "statement": "O sistema deve permitir acompanhar o pedido.",
+      "status": "confirmed",
+      "evidence": [
+        {
+          "artifact_id": "<transcript-artifact-id>",
+          "quote": "Eu preciso acompanhar o pedido."
+        }
+      ]
+    }
+  ]
+}
 ```
 
-Se o Mermaid CLI, o Chrome headless ou o próprio diagrama estiverem indisponíveis, o PDF continua sendo gerado com uma mensagem de fallback. Isso evita perder o documento de requisitos por causa de um problema visual.
+Os IDs são atribuídos na ordem de extração como `REQ-0001`, `REQ-0002` e assim por diante. A estabilidade é garantida dentro de uma execução, não entre reprocessamentos diferentes.
 
-Quando o Mermaid CLI reclamar que não encontrou o Chrome headless, instale o browser usado pelo Puppeteer:
+### Evidência e rastreabilidade
 
-```bash
-npx -y puppeteer browsers install chrome-headless-shell
+Todo requisito precisa possuir ao menos uma citação da transcrição. A normalização:
+
+1. remove diferenças irrelevantes de espaços, caixa e pontuação para comparação;
+2. verifica se a citação está contida na transcrição;
+3. adiciona o ID do artefato `transcript` como origem;
+4. descarta citações vazias, duplicadas ou não encontradas;
+5. rejeita o requisito quando nenhuma de suas citações pode ser validada.
+
+O objetivo é impedir que um requisito sem ligação observável com a reunião seja persistido silenciosamente.
+
+A transcrição atual não possui timestamps nem identificação de interlocutores. Portanto, a evidência é textual. Uma evolução futura pode armazenar segmentos com speaker e intervalo temporal.
+
+### Estados epistemológicos
+
+Cada requisito usa um dos estados:
+
+| Status | Significado |
+| --- | --- |
+| `confirmed` | A transcrição contém evidência explícita do requisito. |
+| `assumption` | O requisito é uma inferência plausível, mas não foi confirmado diretamente. |
+| `pending` | Há necessidade mencionada, porém incompleta ou dependente de decisão. |
+
+Uma regra determinística impede que `assumption` ou `pending` sejam promovidos para `confirmed` durante revisão ou refinamento. Para confirmar um item seria necessário obter nova evidência em outro processo de elicitação.
+
+### Revisão completa, não relatório isolado
+
+A revisão deve devolver todos os IDs recebidos, inclusive requisitos aprovados. Para cada item, o modelo retorna:
+
+```json
+{
+  "id": "REQ-0001",
+  "type": "functional",
+  "statement": "O sistema deve permitir acompanhar o pedido.",
+  "status": "confirmed",
+  "review": {
+    "outcome": "approved",
+    "findings": []
+  }
+}
 ```
 
-Se o Chrome headless estiver instalado em um caminho específico, exporte `PUPPETEER_EXECUTABLE_PATH` antes de rodar a aplicação.
+Resultados válidos de revisão:
 
-A ordem da pipeline é:
+- `approved`: requisito aceito; `findings` pode ser vazio;
+- `revised`: redação ou classificação alterada; exige ao menos um finding;
+- `needs_clarification`: depende de esclarecimento; exige ao menos um finding.
 
-| Ordem | Etapa | O que faz | Artefato principal gerado |
-| --- | --- | --- | --- |
-| 1 | `audio_transcription` | Envia o áudio para o provedor de fala-para-texto e converte a reunião em texto. | `transcript` |
-| 2 | `requirement_extraction` | Lê a transcrição e extrai requisitos candidatos, classificados como requisitos funcionais, requisitos não funcionais, regras de negócio e restrições. | `requirement_draft` |
-| 3 | `requirement_review` | Revisa os requisitos candidatos e aponta ambiguidades, duplicidades, inconsistências, conflitos e requisitos mal escritos. | `reviewed_requirements` |
-| 4 | `gap_analysis` | Procura informações faltantes, requisitos implícitos, regras incompletas, perguntas pendentes e possíveis conflitos. | `gap_analysis` |
-| 5 | `requirement_refinement` | Combina os requisitos revisados com a análise de lacunas para gerar requisitos mais claros, mensuráveis e rastreáveis. | `refined_requirements` |
-| 6 | `diagram_generation` | Gera diagramas Mermaid específicos do negócio discutido na reunião. | `business_diagrams` |
-| 7 | `artifact_generation` | Gera seções finais de documentação a partir dos requisitos refinados. | `software_requirement_specification`, `user_stories`, `acceptance_criteria`, `use_cases` |
+O modelo não devolve evidências nessa resposta. Depois de validar os IDs, a aplicação reanexa as evidências do rascunho. Isso reduz repetição de tokens e impede que a IA altere a origem do requisito.
 
-A exportação para PDF usa `refined_requirements` e, quando disponível, `business_diagrams`. Os artefatos finais de documentação também são persistidos no MongoDB para auditoria e uso futuro.
+A normalização rejeita requisitos omitidos, IDs duplicados e IDs novos.
 
-## Coleções Do MongoDB
+### Lacunas como perguntas, não fatos
 
-A aplicação salva dados em cinco coleções. Os dados de execuções, etapas, artefatos e prompts são intencionalmente incrementais: ao reprocessar, o sistema cria novos documentos em vez de sobrescrever o histórico anterior.
+A análise de lacunas produz itens separados dos requisitos:
+
+```json
+{
+  "gaps": [
+    {
+      "id": "GAP-0001",
+      "type": "missing_information",
+      "status": "pending",
+      "description": "O prazo da notificação não foi definido.",
+      "question": "Qual deve ser o prazo da notificação?",
+      "related_requirement_ids": ["REQ-0002"]
+    }
+  ]
+}
+```
+
+Tipos aceitos:
+
+- `missing_information`;
+- `ambiguity`;
+- `conflict`;
+- `incomplete_rule`.
+
+Toda lacuna permanece `pending`, contém uma pergunta objetiva e referencia ao menos um requisito existente. IDs `GAP-0001`, `GAP-0002` e seguintes são atribuídos pela aplicação.
+
+### Refinamento sem invenção
+
+O refinamento pode melhorar a redação, mas não pode adicionar requisitos, remover requisitos, trocar IDs, mudar tipos, alterar evidências ou confirmar itens pendentes.
+
+Resposta esperada da IA:
+
+```json
+{
+  "requirements": [
+    {
+      "id": "REQ-0001",
+      "statement": "O sistema deve permitir que o cliente acompanhe o pedido.",
+      "status": "confirmed"
+    }
+  ]
+}
+```
+
+O modelo não devolve `type`, `evidence` nem `related_gap_ids`. A aplicação reanexa tipo e evidências a partir da revisão, deriva as relações usando `gap_analysis` e incorpora todas as lacunas em `open_gaps`.
+
+O artefato persistido contém:
+
+```json
+{
+  "requirements": [
+    {
+      "id": "REQ-0001",
+      "type": "functional",
+      "statement": "O sistema deve permitir que o cliente acompanhe o pedido.",
+      "status": "confirmed",
+      "evidence": [
+        {
+          "artifact_id": "<transcript-artifact-id>",
+          "quote": "Eu preciso acompanhar o pedido."
+        }
+      ],
+      "related_gap_ids": []
+    }
+  ],
+  "open_gaps": []
+}
+```
+
+### JSON estrito e normalização canônica
+
+Os decodificadores usam `DisallowUnknownFields`. A resposta falha quando possui:
+
+- JSON malformado;
+- campo desconhecido;
+- enum inválido;
+- campo obrigatório vazio;
+- IDs duplicados ou inexistentes;
+- requisito omitido ou introduzido;
+- requisito sem nenhuma evidência verificável;
+- referência inválida entre requisito e lacuna;
+- promoção indevida para `confirmed`.
+
+Depois da validação, o documento é serializado novamente pela aplicação. Assim, o MongoDB recebe JSON canônico em vez do texto bruto devolvido pelo modelo.
+
+Blocos cercados por ` ```json ` são tolerados, embora os prompts solicitem JSON sem Markdown externo.
+
+### Validação dos diagramas
+
+`business_diagrams` também passa por normalização antes da persistência. O contrato aceita de um a três diagramas e valida:
+
+- `title` obrigatório;
+- `description` obrigatória;
+- tipo entre `business_flow`, `user_journey`, `state_flow` e `decision_flow`;
+- código Mermaid obrigatório;
+- ausência de campos JSON desconhecidos.
+
+Para preservar a legibilidade, o prompt orienta o modelo a limitar cada diagrama a 16 nós e dividir fluxos grandes. Esse limite é editorial: diagramas maiores continuam válidos e não interrompem a pipeline.
+
+A normalização também corrige fechamentos trocados entre nós retangulares (`[texto]`) e nós de decisão (`{decisão}`), um erro sintático recorrente em respostas do modelo.
+
+Os diagramas são exportados diretamente como:
+
+````markdown
+```mermaid
+flowchart TD
+A[Pedido] --> B[Pagamento]
+```
+````
+
+Isso evita dependência de Chrome, Puppeteer e renderização de imagem durante o processamento.
+
+### Documentação final
+
+O estágio `artifact_generation` retorna um JSON externo com quatro strings distintas:
+
+```json
+{
+  "software_requirement_specification": "...",
+  "user_stories": "...",
+  "acceptance_criteria": "...",
+  "use_cases": "..."
+}
+```
+
+Todos os campos são obrigatórios. Os documentos devem citar IDs `REQ`, tratar somente `confirmed` como escopo confirmado e apresentar `assumption`, `pending` e `open_gaps` como pontos de validação.
+
+Cada inicialização do runner registra os prompts padrão no MongoDB. O `StageExecution` guarda modelo, duração, tokens quando disponíveis, entradas, saídas e erro.
+
+### Falha auditável
+
+Quando a IA viola um contrato, o normalizador não persiste um artefato parcial como sucesso. A etapa e o `pipeline_run` são marcados como `failed`, e a mensagem de validação é registrada em `stages.error` e `pipeline_runs.error`.
+
+Essa decisão troca tolerância silenciosa por observabilidade. Para um estudo experimental, isso permite medir a taxa de conformidade estrutural dos modelos.
+
+### Limitações atuais e ameaças à validade
+
+- O JSON é solicitado por prompt e validado depois da resposta; ainda não é imposto por JSON Schema nativo da API.
+- Não há tentativa automática de correção quando o modelo devolve JSON inválido.
+- A evidência usa busca textual normalizada, sem análise semântica.
+- A transcrição não inclui timestamps ou speakers.
+- IDs são estáveis dentro de um run, mas não entre reprocessamentos.
+- A qualidade semântica de um requisito pode estar errada mesmo quando o JSON é estruturalmente válido.
+- O status inicial ainda depende da classificação feita pelo modelo.
+- As métricas de tokens do provider OpenAI ainda não são extraídas para o domínio.
+- Delimitar dados reduz, mas não elimina, prompt injection.
+
+### Métricas possíveis para o artigo
+
+Esta arquitetura permite investigar quantitativamente:
+
+- taxa de respostas que atendem ao schema na primeira tentativa;
+- taxa de requisitos com evidência textual válida;
+- preservação de IDs entre extração, revisão e refinamento;
+- quantidade de omissões e introduções rejeitadas;
+- quantidade de promoções indevidas bloqueadas;
+- crescimento ou redução do volume textual por etapa;
+- latência por estágio;
+- custo ou tokens por estágio;
+- precisão e cobertura comparadas a uma análise humana;
+- avaliação de clareza, completude e utilidade por especialistas;
+- número de lacunas posteriormente confirmadas ou descartadas por stakeholders.
+
+Uma avaliação científica deve separar validade estrutural de qualidade semântica. O normalizador garante propriedades estruturais, mas não prova que a interpretação da reunião está correta.
+
+## Exportação Markdown
+
+O Markdown substituiu o PDF porque o PDF apresentava problemas recorrentes de paginação, fontes, quebra de conteúdo e renderização de Mermaid.
+
+O documento `.md` inclui:
+
+- metadados da reunião e da execução;
+- contagem por status;
+- aviso sobre escopo confirmado;
+- diagramas Mermaid nativos;
+- requisitos com ID, tipo, status e evidências;
+- lacunas e perguntas pendentes;
+- SRS;
+- histórias de usuário;
+- critérios de aceitação;
+- casos de uso.
+
+Vantagens para o MVP e para o TCC:
+
+- formato textual fácil de inspecionar e comparar;
+- diagramas permanecem editáveis;
+- ausência de dependências de browser headless;
+- nenhuma perda de estrutura por paginação;
+- leitura direta no GitHub, editores e ferramentas acadêmicas;
+- conversão posterior possível com Pandoc ou outra ferramenta escolhida fora da pipeline.
+
+## Persistência No MongoDB
+
+A aplicação usa cinco coleções:
 
 ### `meetings`
 
-Armazena a reunião cadastrada para processamento.
-
-| Campo | Significado |
-| --- | --- |
-| `_id` | Identificador da reunião. |
-| `title` | Título da reunião informado pela CLI ou pelo formulário web. |
-| `audio_file` | Caminho do arquivo de áudio usado pela pipeline. No modo web, é o caminho temporário do arquivo enviado durante o processamento. |
-| `language` | Idioma passado para os prompts, com padrão `pt-BR`. |
-| `status` | Status da reunião, atualmente criado como `ready`. |
-| `created_at` | Data e hora de criação da reunião. |
-
-Use esta coleção para identificar qual áudio e qual idioma foram usados em uma reunião.
+- `_id`: ID da reunião;
+- `title`: título informado;
+- `audio_file`: caminho do áudio;
+- `language`: idioma dos prompts;
+- `status`: atualmente criado como `ready`;
+- `created_at`: data de criação.
 
 ### `pipeline_runs`
 
-Armazena uma execução da pipeline. Uma mesma reunião pode ter várias execuções quando é reprocessada.
-
-| Campo | Significado |
-| --- | --- |
-| `_id` | Identificador da execução da pipeline. |
-| `meeting_id` | Referência para `meetings._id`. |
-| `started_at` | Data e hora de início da execução. |
-| `finished_at` | Data e hora de término quando a execução conclui ou falha. |
-| `status` | `running`, `completed` ou `failed`. |
-| `failed_stage_id` | Identificador da etapa que falhou, quando aplicável. |
-| `error` | Mensagem de erro de execuções com falha. |
-
-Use esta coleção para verificar se uma tentativa de processamento concluiu, falhou ou ainda está em execução.
+- `_id`: ID do run;
+- `meeting_id`: reunião relacionada;
+- `started_at` e `finished_at`;
+- `status`: `running`, `completed` ou `failed`;
+- `failed_stage_id` e `error` quando houver falha.
 
 ### `stages`
 
-Armazena cada etapa executada dentro de uma execução da pipeline.
-
-| Campo | Significado |
-| --- | --- |
-| `_id` | Identificador da execução da etapa. |
-| `run_id` | Referência para `pipeline_runs._id`. |
-| `name` | Nome da etapa, como `audio_transcription` ou `requirement_refinement`. |
-| `status` | `running`, `completed` ou `failed`. |
-| `started_at` | Data e hora de início da etapa. |
-| `finished_at` | Data e hora de término da etapa. |
-| `model` | Modelo de IA usado pela etapa. |
-| `prompt_version` | Versão do prompt usada por etapas de geração de texto. |
-| `duration_millis` | Duração da etapa em milissegundos. |
-| `tokens` | Métricas de tokens retornadas pelo provedor, quando disponíveis. |
-| `input_artifact_ids` | Identificadores dos artefatos usados como entrada. |
-| `output_artifact_ids` | Identificadores dos artefatos produzidos pela etapa. |
-| `error` | Mensagem de erro da etapa quando ela falha. |
-
-Use esta coleção para auditar ordem de execução, duração de etapas, uso de modelo, uso de tokens, entradas, saídas e falhas.
+- `_id` e `run_id`;
+- `name` e `status`;
+- timestamps e duração;
+- `model`;
+- métricas de tokens;
+- IDs de artefatos de entrada e saída;
+- erro da etapa.
 
 ### `artifacts`
 
-Armazena todo artefato gerado por uma etapa.
+- `_id` e `stage_id`;
+- `type`;
+- `content` textual ou JSON serializado;
+- `created_at`.
 
-| Campo | Significado |
-| --- | --- |
-| `_id` | Identificador do artefato. |
-| `stage_id` | Referência para `stages._id`. |
-| `type` | Tipo do artefato, como `transcript`, `requirement_draft`, `refined_requirements` ou `business_diagrams`. |
-| `content` | Texto completo do artefato gerado pela etapa. |
-| `created_at` | Data e hora de criação do artefato. |
-
-Use esta coleção para inspecionar o conteúdo real gerado pela IA em cada ponto da pipeline.
+Os artefatos `requirement_draft`, `reviewed_requirements`, `gap_analysis`, `refined_requirements` e `business_diagrams` são JSON validado. `transcript` e os quatro documentos finais são texto.
 
 ### `prompts`
 
-Armazena os templates de prompts padrão registrados quando a aplicação inicia um executor da pipeline.
+- `_id`;
+- `stage_name`;
+- `description`;
+- `template`;
+- `created_at`.
 
-| Campo | Significado |
-| --- | --- |
-| `_id` | Identificador do prompt. |
-| `stage_name` | Etapa que usa o prompt. |
-| `version` | Versão do prompt, atualmente `v1`. |
-| `description` | Descrição curta do prompt. |
-| `template` | Template do prompt com placeholders como `{{input}}`, `{{language}}`, `{{reviewed_requirements}}` e `{{gap_analysis}}`. |
-| `created_at` | Data e hora de criação do prompt. |
-
-Use esta coleção para inspecionar o texto do prompt usado por cada versão de etapa. As etapas atualmente registram `prompt_version`, não um ID direto do documento de prompt; portanto, correlacione prompts por `stage_name`, `version` e horário de criação próximo ao início da execução.
-
-## Como Analisar Uma Execução No MongoDB
-
-Abra o `mongosh` e selecione o banco configurado:
+## Consultas De Auditoria
 
 ```javascript
 use requirement_pipeline
 ```
 
-Liste execuções recentes da pipeline:
+Execuções recentes:
 
 ```javascript
 db.pipeline_runs.find().sort({ started_at: -1 }).limit(5).pretty()
 ```
 
-Carregue uma execução e sua reunião:
+Linha do tempo de um run:
 
 ```javascript
 const run = db.pipeline_runs.findOne({ _id: "<pipeline-run-id>" })
-db.meetings.findOne({ _id: run.meeting_id })
-```
-
-Inspecione a linha do tempo das etapas dessa execução:
-
-```javascript
 db.stages.find({ run_id: run._id }).sort({ started_at: 1 }).pretty()
 ```
 
-Inspecione todos os artefatos produzidos por essa execução:
+Artefatos do run:
 
 ```javascript
-const stageIds = db.stages.find({ run_id: run._id }).map(stage => stage._id)
-db.artifacts.find({ stage_id: { $in: stageIds } }).sort({ created_at: 1 }).pretty()
+const stageIds = db.stages
+  .find({ run_id: run._id })
+  .toArray()
+  .map(stage => stage._id)
+
+db.artifacts
+  .find({ stage_id: { $in: stageIds } })
+  .sort({ created_at: 1 })
+  .pretty()
 ```
 
-Leia apenas o artefato de requisitos refinados usado para exportação do PDF:
+Requisitos refinados:
 
 ```javascript
-const refinementStage = db.stages.findOne({ run_id: run._id, name: "requirement_refinement" })
-db.artifacts.findOne({ stage_id: refinementStage._id, type: "refined_requirements" })
+const refinementStage = db.stages.findOne({
+  run_id: run._id,
+  name: "requirement_refinement"
+})
+
+db.artifacts.findOne({
+  stage_id: refinementStage._id,
+  type: "refined_requirements"
+})
 ```
 
-Leia os diagramas de negócio gerados para o PDF:
-
-```javascript
-const diagramStage = db.stages.findOne({ run_id: run._id, name: "diagram_generation" })
-db.artifacts.findOne({ stage_id: diagramStage._id, type: "business_diagrams" })
-```
-
-Analise uma execução com falha:
+Falhas de contrato:
 
 ```javascript
 db.pipeline_runs.findOne({ _id: "<pipeline-run-id>" })
-db.stages.find({ run_id: "<pipeline-run-id>" }).sort({ started_at: 1 }).pretty()
+db.stages
+  .find({ run_id: "<pipeline-run-id>", status: "failed" })
+  .pretty()
 ```
 
-Para falhas, verifique `pipeline_runs.status`, `pipeline_runs.error`, `pipeline_runs.failed_stage_id`, `stages.status` e `stages.error`.
-
-Compare tentativas de reprocessamento da mesma reunião:
+Prompts mais recentes:
 
 ```javascript
-db.pipeline_runs.find({ meeting_id: "<meeting-id>" }).sort({ started_at: 1 }).pretty()
+db.prompts
+  .find({ stage_name: "requirement_refinement" })
+  .sort({ created_at: -1 })
+  .pretty()
 ```
 
-Inspecione os templates de prompt:
+## Estrutura Do Código
 
-```javascript
-db.prompts.find().sort({ created_at: -1 }).pretty()
-```
-
-Inspecione o prompt mais recente registrado para uma etapa:
-
-```javascript
-db.prompts.find({ stage_name: "requirement_refinement" }).sort({ created_at: -1 }).limit(1).pretty()
-```
-
-## Fluxo De Auditoria
-
-Para entender o que aconteceu em uma execução, siga esta ordem:
-
-1. Comece por `pipeline_runs` para identificar status, timestamps e o `meeting_id` relacionado.
-2. Abra `meetings` para confirmar título, caminho do áudio e idioma.
-3. Consulte `stages` por `run_id`, ordenando por `started_at`, para ver a sequência exata de processamento.
-4. Para cada etapa, use `input_artifact_ids` e `output_artifact_ids` para entender quais dados entraram e saíram da etapa.
-5. Consulte `artifacts` para ler o conteúdo gerado, especialmente `transcript`, `requirement_draft`, `reviewed_requirements`, `gap_analysis`, `refined_requirements` e `business_diagrams`.
-6. Verifique `model`, `prompt_version`, `duration_millis` e `tokens` em `stages` para avaliar uso de modelo e performance.
-7. Verifique `prompts` para entender o template que orientou cada etapa de IA.
-8. Se a execução falhou, inspecione `pipeline_runs.error`, `pipeline_runs.failed_stage_id` e o `stages.error` da etapa com falha.
+- `cmd/requirement-pipeline/main.go`: CLI, web e composição da aplicação;
+- `internal/pipeline/`: executor sequencial e auditoria;
+- `internal/stages/`: chamadas de IA e aplicação dos normalizadores;
+- `internal/requirements/`: contratos, normalização e validação dos requisitos;
+- `internal/prompts/`: templates usados pelas etapas de IA;
+- `internal/providers/`: OpenAI e mock;
+- `internal/repository/`: MongoDB e store em memória;
+- `internal/export/`: Markdown e validação dos diagramas;
+- `internal/web/`: upload, loading e download.
 
 ## Testes
 
@@ -350,4 +621,24 @@ Para entender o que aconteceu em uma execução, siga esta ordem:
 go test ./...
 ```
 
-Os testes usam providers de IA mockados e repositórios em memória, então não chamam OpenAI nem MongoDB.
+Execução sequencial entre pacotes:
+
+```bash
+go test -p 1 ./...
+```
+
+Os testes usam providers mockados e stores em memória. Eles não chamam OpenAI nem MongoDB.
+
+Os cenários de contrato cobrem:
+
+- atribuição de IDs;
+- ligação da evidência ao transcript;
+- preservação de rastreabilidade;
+- omissão de requisitos;
+- referências inválidas;
+- promoção indevida de status;
+- schemas incompletos;
+- separação dos quatro documentos finais;
+- validação de Mermaid;
+- exportação Markdown;
+- upload e download web.

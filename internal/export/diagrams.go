@@ -3,13 +3,15 @@ package export
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 )
 
-const maxBusinessDiagramNodes = 16
-
-var mermaidNodeIDPattern = regexp.MustCompile(`^[\s\-\.>]*([A-Za-z][A-Za-z0-9_]*)`)
+var (
+	mismatchedDecisionNodePattern  = regexp.MustCompile(`(\b[A-Za-z][A-Za-z0-9_]*\{[^\r\n{}\[\]]*)\]`)
+	mismatchedRectangleNodePattern = regexp.MustCompile(`(\b[A-Za-z][A-Za-z0-9_]*\[[^\r\n{}\[\]]*)\}`)
+)
 
 type BusinessDiagramDocument struct {
 	Diagrams []BusinessDiagram `json:"diagrams"`
@@ -30,53 +32,59 @@ func ParseBusinessDiagrams(content string) (BusinessDiagramDocument, error) {
 	cleaned = strings.TrimSpace(cleaned)
 
 	var document BusinessDiagramDocument
-	if err := json.Unmarshal([]byte(cleaned), &document); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(cleaned))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
 		return BusinessDiagramDocument{}, fmt.Errorf("parse business diagrams: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return BusinessDiagramDocument{}, fmt.Errorf("parse business diagrams: unexpected data after JSON document")
 	}
 	if len(document.Diagrams) == 0 {
 		return BusinessDiagramDocument{}, fmt.Errorf("business diagrams artifact has no diagrams")
 	}
-	for i, diagram := range document.Diagrams {
-		if err := ValidateBusinessDiagram(diagram); err != nil {
+	if len(document.Diagrams) > 3 {
+		return BusinessDiagramDocument{}, fmt.Errorf("business diagrams artifact has %d diagrams, maximum is 3", len(document.Diagrams))
+	}
+	for i := range document.Diagrams {
+		document.Diagrams[i].Mermaid = normalizeMermaidSource(document.Diagrams[i].Mermaid)
+		if err := ValidateBusinessDiagram(document.Diagrams[i]); err != nil {
 			return BusinessDiagramDocument{}, fmt.Errorf("diagram %d: %w", i+1, err)
 		}
 	}
 	return document, nil
 }
 
+func NormalizeBusinessDiagrams(content string) (string, error) {
+	document, err := ParseBusinessDiagrams(content)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
 func ValidateBusinessDiagram(diagram BusinessDiagram) error {
 	if strings.TrimSpace(diagram.Title) == "" {
 		return fmt.Errorf("title is required")
 	}
+	if diagram.Type != "business_flow" && diagram.Type != "user_journey" && diagram.Type != "state_flow" && diagram.Type != "decision_flow" {
+		return fmt.Errorf("type %q is invalid", diagram.Type)
+	}
+	if strings.TrimSpace(diagram.Description) == "" {
+		return fmt.Errorf("description is required")
+	}
 	if strings.TrimSpace(diagram.Mermaid) == "" {
 		return fmt.Errorf("mermaid source is required")
-	}
-	if nodes := CountMermaidNodes(diagram.Mermaid); nodes > maxBusinessDiagramNodes {
-		return fmt.Errorf("diagram has %d nodes, maximum is %d", nodes, maxBusinessDiagramNodes)
 	}
 	return nil
 }
 
-func CountMermaidNodes(source string) int {
-	nodes := map[string]bool{}
-	for line := range strings.SplitSeq(source, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "flowchart ") || strings.HasPrefix(line, "graph ") || strings.HasPrefix(line, "%%") {
-			continue
-		}
-		parts := strings.FieldsFunc(line, func(r rune) bool {
-			return r == '-' || r == '>' || r == '|'
-		})
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if part == "" || strings.HasPrefix(part, "style ") || strings.HasPrefix(part, "classDef ") {
-				continue
-			}
-			match := mermaidNodeIDPattern.FindStringSubmatch(part)
-			if len(match) == 2 {
-				nodes[match[1]] = true
-			}
-		}
-	}
-	return len(nodes)
+func normalizeMermaidSource(source string) string {
+	source = mismatchedDecisionNodePattern.ReplaceAllString(source, `${1}}`)
+	source = mismatchedRectangleNodePattern.ReplaceAllString(source, `${1}]`)
+	return strings.TrimSpace(source)
 }

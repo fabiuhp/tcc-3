@@ -11,6 +11,8 @@ import (
 type MockAIProvider struct {
 	TranscriptionText string
 	TextPrefix        string
+	GenerationText    string
+	GenerationFunc    func(ports.TextGenerationRequest) (ports.TextGenerationResponse, error)
 	Tokens            domain.TokenMetrics
 	TranscriptionErr  error
 	GenerationErr     error
@@ -30,6 +32,12 @@ func (m MockAIProvider) Transcribe(_ context.Context, req ports.TranscriptionReq
 func (m MockAIProvider) Generate(_ context.Context, req ports.TextGenerationRequest) (ports.TextGenerationResponse, error) {
 	if m.GenerationErr != nil {
 		return ports.TextGenerationResponse{}, m.GenerationErr
+	}
+	if m.GenerationFunc != nil {
+		return m.GenerationFunc(req)
+	}
+	if m.GenerationText != "" {
+		return ports.TextGenerationResponse{Text: m.GenerationText, Model: req.Model, Tokens: m.Tokens}, nil
 	}
 	prefix := m.TextPrefix
 	if prefix == "" {

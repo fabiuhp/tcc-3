@@ -2,56 +2,56 @@ package web
 
 import (
 	"context"
-	"image"
-	"image/color"
-	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/export"
 )
 
-func TestFileExporterExportsEnhancedPDFWithBusinessDiagrams(t *testing.T) {
+const webRefinedRequirementsJSON = `{"requirements":[{"id":"REQ-0001","type":"functional","statement":"O sistema deve gerar requisitos.","status":"confirmed","evidence":[{"artifact_id":"transcript-1","quote":"O sistema deve gerar requisitos."}],"related_gap_ids":[]}],"open_gaps":[]}`
+
+func TestFileExporterExportsMarkdownWithBusinessDiagrams(t *testing.T) {
 	outputDir := t.TempDir()
 	exporter := FileExporter{
-		Store:           staticAuditStore{audit: auditWithBusinessDiagrams(`{"diagrams":[{"title":"Fluxo de Cadastro","type":"business_flow","description":"Cadastro com liberação.","mermaid":"flowchart TD\nA[Cliente] --> B[Cadastro]\nB --> C[Acesso]"}]}`)},
-		OutputDir:       outputDir,
-		MermaidRenderer: &testMermaidRenderer{outputDir: outputDir, width: 640, height: 360},
+		Store:     staticAuditStore{audit: auditWithBusinessDiagrams(`{"diagrams":[{"title":"Fluxo de Cadastro","type":"business_flow","description":"Cadastro com liberação.","mermaid":"flowchart TD\nA[Cliente] --> B[Cadastro]\nB --> C[Acesso]"}]}`)},
+		OutputDir: outputDir,
 	}
 
 	path, err := exporter.Export(context.Background(), "run-1")
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat pdf: %v", err)
+	if filepath.Ext(path) != ".md" {
+		t.Fatalf("extension = %q, want .md", filepath.Ext(path))
 	}
-	if info.Size() == 0 {
-		t.Fatal("pdf is empty")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read markdown: %v", err)
+	}
+	if !strings.Contains(string(content), "```mermaid") {
+		t.Fatal("markdown does not contain Mermaid diagram")
 	}
 }
 
 func TestFileExporterFallsBackWhenBusinessDiagramsAreInvalid(t *testing.T) {
 	exporter := FileExporter{
-		Store:           staticAuditStore{audit: auditWithBusinessDiagrams("not json")},
-		OutputDir:       t.TempDir(),
-		MermaidRenderer: &testMermaidRenderer{},
+		Store:     staticAuditStore{audit: auditWithBusinessDiagrams("not json")},
+		OutputDir: t.TempDir(),
 	}
 
 	path, err := exporter.Export(context.Background(), "run-1")
 	if err != nil {
 		t.Fatalf("export fallback: %v", err)
 	}
-	info, err := os.Stat(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("stat pdf: %v", err)
+		t.Fatalf("read markdown: %v", err)
 	}
-	if info.Size() == 0 {
-		t.Fatal("pdf is empty")
+	if !strings.Contains(string(content), "não pôde ser interpretado") {
+		t.Fatal("markdown does not contain diagram fallback")
 	}
 }
 
@@ -69,36 +69,8 @@ func auditWithBusinessDiagrams(content string) domain.AuditRun {
 		Meeting: domain.Meeting{ID: "meeting-1", Title: "Reunião", Language: "pt-BR"},
 		Run:     domain.PipelineRun{ID: "run-1"},
 		Artifacts: []domain.Artifact{
-			{ID: "artifact-1", Type: domain.ArtifactRefinedRequirements, Content: "O sistema deve gerar requisitos.", CreatedAt: now},
+			{ID: "artifact-1", Type: domain.ArtifactRefinedRequirements, Content: webRefinedRequirementsJSON, CreatedAt: now},
 			{ID: "artifact-2", Type: domain.ArtifactBusinessDiagrams, Content: content, CreatedAt: now},
 		},
 	}
-}
-
-type testMermaidRenderer struct {
-	outputDir string
-	width     int
-	height    int
-}
-
-func (r *testMermaidRenderer) RenderMermaid(source string) (export.RenderedDiagram, error) {
-	if r.outputDir == "" {
-		return export.RenderedDiagram{}, os.ErrInvalid
-	}
-	path := filepath.Join(r.outputDir, "diagram.png")
-	img := image.NewRGBA(image.Rect(0, 0, r.width, r.height))
-	for y := 0; y < r.height; y++ {
-		for x := 0; x < r.width; x++ {
-			img.Set(x, y, color.White)
-		}
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		return export.RenderedDiagram{}, err
-	}
-	defer file.Close()
-	if err := png.Encode(file, img); err != nil {
-		return export.RenderedDiagram{}, err
-	}
-	return export.RenderedDiagram{Path: path, WidthPx: r.width, HeightPx: r.height}, nil
 }

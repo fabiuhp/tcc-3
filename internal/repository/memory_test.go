@@ -30,7 +30,7 @@ func TestMemoryStorePersistsAndReconstructsRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create artifact: %v", err)
 	}
-	prompt, err := store.CreatePrompt(ctx, domain.Prompt{StageName: domain.StageRequirementExtraction, Version: "v1", Template: "{{input}}", CreatedAt: now})
+	prompt, err := store.CreatePrompt(ctx, domain.Prompt{StageName: domain.StageRequirementExtraction, Template: "{{input}}", CreatedAt: now})
 	if err != nil {
 		t.Fatalf("create prompt: %v", err)
 	}
@@ -57,14 +57,14 @@ func TestMemoryStoreLatestPromptByStage(t *testing.T) {
 	ctx := context.Background()
 	store := repository.NewMemoryStore()
 	now := time.Now().UTC()
-	_, _ = store.CreatePrompt(ctx, domain.Prompt{StageName: domain.StageRequirementExtraction, Version: "v1", CreatedAt: now})
-	_, _ = store.CreatePrompt(ctx, domain.Prompt{StageName: domain.StageRequirementExtraction, Version: "v2", CreatedAt: now.Add(time.Second)})
+	_, _ = store.CreatePrompt(ctx, domain.Prompt{StageName: domain.StageRequirementExtraction, Template: "older", CreatedAt: now})
+	_, _ = store.CreatePrompt(ctx, domain.Prompt{StageName: domain.StageRequirementExtraction, Template: "latest", CreatedAt: now.Add(time.Second)})
 
 	prompt, err := store.GetLatestPromptByStage(ctx, domain.StageRequirementExtraction)
 	if err != nil {
 		t.Fatalf("latest prompt: %v", err)
 	}
-	if prompt.Version != "v2" {
-		t.Fatalf("version = %s, want v2", prompt.Version)
+	if prompt.Template != "latest" {
+		t.Fatalf("template = %q, want latest", prompt.Template)
 	}
 }

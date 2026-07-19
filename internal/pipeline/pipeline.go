@@ -24,10 +24,9 @@ type StageContext struct {
 }
 
 type StageResult struct {
-	Artifacts     []domain.Artifact
-	Model         string
-	PromptVersion string
-	Tokens        domain.TokenMetrics
+	Artifacts []domain.Artifact
+	Model     string
+	Tokens    domain.TokenMetrics
 }
 
 type Runner struct {
@@ -87,7 +86,6 @@ func (r *Runner) Run(ctx context.Context, input RunInput) (domain.PipelineRun, e
 		stage.FinishedAt = &finished
 		stage.DurationMillis = finished.Sub(stageStart).Milliseconds()
 		stage.Model = result.Model
-		stage.PromptVersion = result.PromptVersion
 		stage.Tokens = result.Tokens
 
 		if execErr != nil {

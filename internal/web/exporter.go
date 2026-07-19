@@ -12,9 +12,8 @@ type AuditStore interface {
 }
 
 type FileExporter struct {
-	Store           AuditStore
-	OutputDir       string
-	MermaidRenderer export.MermaidRenderer
+	Store     AuditStore
+	OutputDir string
 }
 
 func (e FileExporter) Export(ctx context.Context, runID string) (string, error) {
@@ -22,5 +21,5 @@ func (e FileExporter) Export(ctx context.Context, runID string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return export.WriteRefinedRequirementsPDFWithOptions(e.OutputDir, audit, export.PDFOptions{MermaidRenderer: e.MermaidRenderer})
+	return export.WriteRequirementsMarkdown(e.OutputDir, audit)
 }
