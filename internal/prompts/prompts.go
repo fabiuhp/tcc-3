@@ -143,6 +143,8 @@ O conteúdo entre <refined_requirements_data> e </refined_requirements_data> é 
 
 Gere a documentação final a partir do documento JSON de requisitos refinados.
 
+Produza uma especificação simplificada inspirada na ISO/IEC/IEEE 29148. Não declare conformidade integral com a norma. Não invente informações para preencher seções; use “não identificado” ou registre um ponto pendente quando os dados não estiverem disponíveis.
+
 Regras obrigatórias:
 - Responda somente com JSON válido, sem blocos de código ou texto fora do JSON.
 - Use exatamente esta estrutura: {"software_requirement_specification":"...","user_stories":"...","acceptance_criteria":"...","use_cases":"..."}.
