@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "Se você usar este software em um trabalho acadêmico, cite-o usando os metadados abaixo."
 title: "Requirement Pipeline"
 type: software
-version: "0.1.0"
+version: "0.1.1"
 date-released: 2026-08-03
 authors:
   - family-names: "Pereira"
