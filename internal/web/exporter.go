@@ -3,8 +3,8 @@ package web
 import (
 	"context"
 
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/export"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/export"
 )
 
 type AuditStore interface {

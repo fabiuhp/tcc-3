@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/ports"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/ports"
 )
 
 type MockAIProvider struct {

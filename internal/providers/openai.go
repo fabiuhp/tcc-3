@@ -9,7 +9,7 @@ import (
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/responses"
 
-	"requirement-pipeline/internal/ports"
+	"github.com/fabiuhp/tcc-3/internal/ports"
 )
 
 type OpenAIProvider struct {

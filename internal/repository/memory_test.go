@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/repository"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/repository"
 )
 
 func TestMemoryStorePersistsAndReconstructsRun(t *testing.T) {

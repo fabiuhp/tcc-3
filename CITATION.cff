@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "Se você usar este software em um trabalho acadêmico, cite-o usando os metadados abaixo."
+title: "Requirement Pipeline"
+type: software
+authors:
+  - family-names: "Pereira"
+    given-names: "Fábio"
+repository-code: "https://github.com/fabiuhp/tcc-3"
+url: "https://github.com/fabiuhp/tcc-3"
+license: MIT
+abstract: >-
+  Pipeline em Go que transforma áudios de reuniões de elicitação em
+  requisitos estruturados, rastreáveis e auditáveis com apoio de IA.
+keywords:
+  - requirements engineering
+  - artificial intelligence
+  - traceability
+  - elicitation
+  - Go

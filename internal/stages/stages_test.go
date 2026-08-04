@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/pipeline"
-	"requirement-pipeline/internal/ports"
-	"requirement-pipeline/internal/prompts"
-	"requirement-pipeline/internal/providers"
-	"requirement-pipeline/internal/stages"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/pipeline"
+	"github.com/fabiuhp/tcc-3/internal/ports"
+	"github.com/fabiuhp/tcc-3/internal/prompts"
+	"github.com/fabiuhp/tcc-3/internal/providers"
+	"github.com/fabiuhp/tcc-3/internal/stages"
 )
 
 func TestDefaultStagesProduceExpectedArtifactTypes(t *testing.T) {

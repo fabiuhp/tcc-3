@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/pipeline"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/pipeline"
 )
 
 func TestServerRendersUploadForm(t *testing.T) {

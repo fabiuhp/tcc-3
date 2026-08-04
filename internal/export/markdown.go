@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/requirements"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/requirements"
 )
 
 type MarkdownOptions struct {

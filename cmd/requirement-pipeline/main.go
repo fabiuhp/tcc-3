@@ -8,16 +8,16 @@ import (
 	"net/http"
 	"time"
 
-	"requirement-pipeline/internal/config"
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/export"
-	"requirement-pipeline/internal/pipeline"
-	"requirement-pipeline/internal/ports"
-	"requirement-pipeline/internal/prompts"
-	"requirement-pipeline/internal/providers"
-	"requirement-pipeline/internal/repository"
-	"requirement-pipeline/internal/stages"
-	"requirement-pipeline/internal/web"
+	"github.com/fabiuhp/tcc-3/internal/config"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/export"
+	"github.com/fabiuhp/tcc-3/internal/pipeline"
+	"github.com/fabiuhp/tcc-3/internal/ports"
+	"github.com/fabiuhp/tcc-3/internal/prompts"
+	"github.com/fabiuhp/tcc-3/internal/providers"
+	"github.com/fabiuhp/tcc-3/internal/repository"
+	"github.com/fabiuhp/tcc-3/internal/stages"
+	"github.com/fabiuhp/tcc-3/internal/web"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func main() {
 	outputDir := flag.String("out", "output", "directory for generated files")
 	exportRunID := flag.String("export-run-id", "", "existing pipeline run id to export requirements Markdown without reprocessing")
 	serveWeb := flag.Bool("web", false, "start the browser upload frontend instead of running the CLI pipeline")
-	addr := flag.String("addr", ":8080", "HTTP address for -web mode")
+	addr := flag.String("addr", "127.0.0.1:8080", "HTTP address for -web mode")
 	uploadDir := flag.String("uploads", "uploads", "directory for temporary web uploads")
 	flag.Parse()
 
@@ -53,7 +53,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("initialize web server: %v", err)
 		}
-		log.Printf("serving frontend at http://localhost%s", *addr)
+		log.Printf("serving frontend at http://%s", *addr)
 		if err := http.ListenAndServe(*addr, server.Handler()); err != nil {
 			log.Fatalf("serve frontend: %v", err)
 		}

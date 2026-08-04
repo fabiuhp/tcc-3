@@ -1,8 +1,25 @@
 # Requirement Pipeline
 
+[![CI](https://github.com/fabiuhp/tcc-3/actions/workflows/ci.yml/badge.svg)](https://github.com/fabiuhp/tcc-3/actions/workflows/ci.yml)
+[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue.svg)](LICENSE)
+
 MVP em Go para transformar o áudio de uma reunião de elicitação em requisitos estruturados, rastreáveis e auditáveis. A pipeline usa IA para transcrição e análise textual, mas mantém na aplicação a responsabilidade por IDs, evidências, validação de schemas e persistência.
 
-Este README também registra decisões metodológicas da pipeline para apoiar a futura escrita do artigo científico do TCC.
+O projeto foi desenvolvido por [Fábio Pereira](https://github.com/fabiuhp) como Trabalho de Conclusão de Curso (TCC). Este README também registra decisões metodológicas da pipeline para apoiar a escrita do trabalho acadêmico.
+
+> [!IMPORTANT]
+> Este é um protótipo acadêmico para execução local. O frontend não possui autenticação, autorização ou TLS e não deve ser exposto diretamente à internet ou a redes não confiáveis.
+
+## Privacidade E Custos
+
+- O áudio é enviado à API da OpenAI para transcrição.
+- A transcrição e os artefatos derivados são enviados à API da OpenAI durante as etapas textuais.
+- Transcrições, requisitos, prompts, erros e metadados de auditoria são persistidos no MongoDB configurado.
+- Arquivos Markdown são gravados localmente em `output/`.
+- O uso da API da OpenAI pode gerar custos e está sujeito aos termos e às políticas de dados da conta utilizada.
+- Não processe reuniões reais sem autorização, base legal adequada e avaliação dos dados pessoais ou confidenciais envolvidos.
+
+Arquivos `.env`, áudios, uploads e saídas geradas são ignorados pelo Git, mas continuam sob responsabilidade de quem executa a aplicação. Restrinja o acesso ao MongoDB e remova os dados quando não forem mais necessários.
 
 ## Requisitos
 
@@ -16,9 +33,19 @@ Node.js, Puppeteer e Mermaid CLI não são necessários em runtime. Os diagramas
 
 A aplicação carrega `.env` automaticamente e depois lê as variáveis de ambiente. Variáveis exportadas no ambiente têm prioridade sobre o arquivo.
 
+Clone o repositório e crie a configuração local:
+
+```bash
+git clone https://github.com/fabiuhp/tcc-3.git
+cd tcc-3
+cp .env.example .env
+```
+
+Edite `.env` e substitua `inserir-sua-chave` pela sua chave. Nunca versione ou compartilhe esse arquivo.
+
 - `OPENAI_API_KEY`: obrigatória para execução real com OpenAI
 - `OPENAI_TRANSCRIPTION_MODEL`: padrão `gpt-4o-transcribe`
-- `OPENAI_TEXT_MODEL`: padrão `gpt-5`
+- `OPENAI_TEXT_MODEL`: padrão `gpt-5.6-sol`
 - `MONGO_URI`: padrão `mongodb://localhost:27017`
 - `MONGO_DATABASE`: padrão `requirement_pipeline`
 - `PIPELINE_DEFAULT_LANGUAGE`: padrão `pt-BR`
@@ -28,7 +55,7 @@ Para iniciar um MongoDB local com Docker:
 ```bash
 docker run -d \
   --name requirement-pipeline-mongo \
-  -p 27017:27017 \
+  -p 127.0.0.1:27017:27017 \
   -v requirement-pipeline-mongo-data:/data/db \
   mongo:7
 ```
@@ -82,12 +109,14 @@ go run ./cmd/requirement-pipeline -export-run-id "<pipeline-run-id>"
 ### Frontend Web
 
 ```bash
-go run ./cmd/requirement-pipeline -web -addr :8080
+go run ./cmd/requirement-pipeline -web
 ```
 
-Abra `http://localhost:8080`, envie o áudio e aguarde o processamento. Durante o envio, a página mostra um estado visual de loading, bloqueia envios duplicados e informa que a operação pode levar alguns minutos.
+Por padrão, o servidor escuta somente em `127.0.0.1:8080`. Abra `http://127.0.0.1:8080`, envie o áudio e aguarde o processamento. Durante o envio, a página mostra um estado visual de loading, bloqueia envios duplicados e informa que a operação pode levar alguns minutos.
 
 Uploads são salvos temporariamente em `uploads/` e removidos ao final da requisição. Documentos Markdown são salvos em `output/` e servidos por `/downloads/<arquivo>.md`.
+
+O parâmetro `-addr` permite alterar o endereço, mas publicar o serviço em outra interface exige que autenticação, TLS, controle de acesso e proteção da rede sejam implementados externamente.
 
 ## Fluxo Da Pipeline
 
@@ -642,3 +671,19 @@ Os cenários de contrato cobrem:
 - validação de Mermaid;
 - exportação Markdown;
 - upload e download web.
+
+## Contribuindo
+
+Issues e pull requests são bem-vindos. Consulte [CONTRIBUTING.md](CONTRIBUTING.md) para preparar o ambiente, executar as verificações e enviar alterações. Vulnerabilidades devem seguir o processo privado descrito em [SECURITY.md](SECURITY.md).
+
+## Citação
+
+Os metadados acadêmicos estão em [CITATION.cff](CITATION.cff). No GitHub, use a opção **Cite this repository** para gerar uma referência nos formatos disponíveis.
+
+Ao publicar uma versão utilizada em experimento ou no TCC, crie uma release e preserve o identificador da versão ou o hash do commit junto aos resultados.
+
+## Licença
+
+O código e a documentação deste repositório são disponibilizados sob a [Licença MIT](LICENSE). Dependências de terceiros permanecem sujeitas às suas próprias licenças.
+
+Gravações, datasets, resultados experimentais e o texto final do TCC não recebem automaticamente esta licença, a menos que sejam publicados com uma declaração específica.

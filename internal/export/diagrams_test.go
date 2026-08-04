@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"requirement-pipeline/internal/export"
+	"github.com/fabiuhp/tcc-3/internal/export"
 )
 
 func TestParseBusinessDiagrams(t *testing.T) {

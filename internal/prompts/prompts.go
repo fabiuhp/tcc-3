@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"requirement-pipeline/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/domain"
 )
 
 func Defaults(now time.Time) []domain.Prompt {

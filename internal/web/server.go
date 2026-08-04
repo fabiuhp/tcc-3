@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/pipeline"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/pipeline"
 )
 
 const defaultMaxUploadBytes = 100 << 20

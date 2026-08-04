@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"requirement-pipeline/internal/domain"
-	"requirement-pipeline/internal/export"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/export"
 )
 
 const refinedRequirementsJSON = `{"requirements":[{"id":"REQ-0001","type":"functional","statement":"O sistema deve permitir acompanhar o pedido.","status":"confirmed","evidence":[{"artifact_id":"transcript-1","quote":"Eu preciso acompanhar o pedido."}],"related_gap_ids":[]},{"id":"REQ-0002","type":"business_rule","statement":"O prazo da notificação deve ser definido.","status":"pending","evidence":[{"artifact_id":"transcript-1","quote":"O prazo ainda precisa ser decidido."}],"related_gap_ids":["GAP-0001"]}],"open_gaps":[{"id":"GAP-0001","type":"missing_information","status":"pending","description":"O prazo não foi definido.","question":"Qual deve ser o prazo?","related_requirement_ids":["REQ-0002"]}]}`

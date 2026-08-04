@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"requirement-pipeline/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/domain"
 )
 
 const webRefinedRequirementsJSON = `{"requirements":[{"id":"REQ-0001","type":"functional","statement":"O sistema deve gerar requisitos.","status":"confirmed","evidence":[{"artifact_id":"transcript-1","quote":"O sistema deve gerar requisitos."}],"related_gap_ids":[]}],"open_gaps":[]}`

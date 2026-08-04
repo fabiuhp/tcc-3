@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"requirement-pipeline/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/domain"
 )
 
 type RequirementType string

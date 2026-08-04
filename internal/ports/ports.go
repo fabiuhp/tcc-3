@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"requirement-pipeline/internal/domain"
+	"github.com/fabiuhp/tcc-3/internal/domain"
 )
 
 type MeetingRepository interface {

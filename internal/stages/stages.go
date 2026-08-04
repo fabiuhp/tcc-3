@@ -7,12 +7,12 @@ import (
 	"io"
 	"strings"
 
-	"requirement-pipeline/internal/domain"
-	artifactexport "requirement-pipeline/internal/export"
-	"requirement-pipeline/internal/pipeline"
-	"requirement-pipeline/internal/ports"
-	"requirement-pipeline/internal/prompts"
-	"requirement-pipeline/internal/requirements"
+	"github.com/fabiuhp/tcc-3/internal/domain"
+	artifactexport "github.com/fabiuhp/tcc-3/internal/export"
+	"github.com/fabiuhp/tcc-3/internal/pipeline"
+	"github.com/fabiuhp/tcc-3/internal/ports"
+	"github.com/fabiuhp/tcc-3/internal/prompts"
+	"github.com/fabiuhp/tcc-3/internal/requirements"
 )
 
 type Models struct {

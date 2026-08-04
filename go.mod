@@ -1,4 +1,4 @@
-module requirement-pipeline
+module github.com/fabiuhp/tcc-3
 
 go 1.26
 
