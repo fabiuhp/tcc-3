@@ -9,6 +9,7 @@ import (
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/responses"
 
+	"github.com/fabiuhp/tcc-3/internal/domain"
 	"github.com/fabiuhp/tcc-3/internal/ports"
 )
 
@@ -41,7 +42,11 @@ func (p *OpenAIProvider) Transcribe(ctx context.Context, req ports.Transcription
 	if err != nil {
 		return ports.TranscriptionResponse{}, err
 	}
-	return ports.TranscriptionResponse{Text: transcription.Text, Model: req.Model}, nil
+	return ports.TranscriptionResponse{
+		Text:   transcription.Text,
+		Model:  req.Model,
+		Tokens: transcriptionTokenMetrics(transcription.Usage),
+	}, nil
 }
 
 func (p *OpenAIProvider) Generate(ctx context.Context, req ports.TextGenerationRequest) (ports.TextGenerationResponse, error) {
@@ -52,5 +57,20 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req ports.TextGenerationR
 	if err != nil {
 		return ports.TextGenerationResponse{}, err
 	}
-	return ports.TextGenerationResponse{Text: response.OutputText(), Model: req.Model}, nil
+	return ports.TextGenerationResponse{
+		Text:   response.OutputText(),
+		Model:  req.Model,
+		Tokens: domain.TokenMetrics{InputTokens: int(response.Usage.InputTokens), OutputTokens: int(response.Usage.OutputTokens), TotalTokens: int(response.Usage.TotalTokens)},
+	}, nil
+}
+
+func transcriptionTokenMetrics(usage openai.TranscriptionUsageUnion) domain.TokenMetrics {
+	if usage.Type != "tokens" {
+		return domain.TokenMetrics{}
+	}
+	return domain.TokenMetrics{
+		InputTokens:  int(usage.InputTokens),
+		OutputTokens: int(usage.OutputTokens),
+		TotalTokens:  int(usage.TotalTokens),
+	}
 }
