@@ -11,7 +11,7 @@ const (
 	DefaultMongoURI           = "mongodb://localhost:27017"
 	DefaultMongoDatabase      = "requirement_pipeline"
 	DefaultTranscriptionModel = "gpt-4o-transcribe"
-	DefaultTextModel          = "gpt-5.6-sol"
+	DefaultTextModel          = "gpt-5.6-luna"
 	DefaultLanguage           = "pt-BR"
 )
 
