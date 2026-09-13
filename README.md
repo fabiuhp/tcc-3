@@ -45,7 +45,7 @@ Edite `.env` e substitua `inserir-sua-chave` pela sua chave. Nunca versione ou c
 
 - `OPENAI_API_KEY`: obrigatória para execução real com OpenAI
 - `OPENAI_TRANSCRIPTION_MODEL`: padrão `gpt-4o-transcribe`
-- `OPENAI_TEXT_MODEL`: padrão `gpt-5.6-sol`
+- `OPENAI_TEXT_MODEL`: padrão `gpt-5.6-luna`
 - `MONGO_URI`: padrão `mongodb://localhost:27017`
 - `MONGO_DATABASE`: padrão `requirement_pipeline`
 - `PIPELINE_DEFAULT_LANGUAGE`: padrão `pt-BR`
