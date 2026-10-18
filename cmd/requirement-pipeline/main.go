@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/fabiuhp/tcc-3/internal/config"
@@ -17,12 +19,14 @@ import (
 	"github.com/fabiuhp/tcc-3/internal/providers"
 	"github.com/fabiuhp/tcc-3/internal/repository"
 	"github.com/fabiuhp/tcc-3/internal/stages"
+	"github.com/fabiuhp/tcc-3/internal/transcripts"
 	"github.com/fabiuhp/tcc-3/internal/web"
 )
 
 func main() {
 	title := flag.String("title", "Untitled meeting", "meeting title")
 	audio := flag.String("audio", "", "audio file path")
+	transcriptFile := flag.String("transcript", "", "Markdown transcript file path (skip audio transcription)")
 	language := flag.String("language", "", "meeting language")
 	meetingID := flag.String("meeting-id", "", "existing meeting id to reprocess")
 	outputDir := flag.String("out", "output", "directory for generated files")
@@ -31,6 +35,21 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP address for -web mode")
 	uploadDir := flag.String("uploads", "uploads", "directory for temporary web uploads")
 	flag.Parse()
+	if *transcriptFile != "" && (*audio != "" || *meetingID != "" || *serveWeb || *exportRunID != "") {
+		log.Fatal("-transcript cannot be combined with -audio, -meeting-id, -web or -export-run-id")
+	}
+	var transcript string
+	if *transcriptFile != "" {
+		file, err := os.Open(*transcriptFile)
+		if err != nil {
+			log.Fatalf("open transcript: %v", err)
+		}
+		transcript, err = transcripts.ReadMarkdown(*transcriptFile, file)
+		file.Close()
+		if err != nil {
+			log.Fatalf("read transcript: %v", err)
+		}
+	}
 
 	cfg := config.Load()
 	if *language == "" {
@@ -74,7 +93,11 @@ func main() {
 		log.Fatalf("initialize pipeline: %v", err)
 	}
 
-	run, pipelineErr := runner.Run(ctx, pipeline.RunInput{MeetingID: *meetingID, Title: *title, AudioFile: *audio, Language: *language})
+	input := pipeline.RunInput{MeetingID: *meetingID, Title: *title, AudioFile: *audio, Language: *language, Transcript: transcript}
+	if *transcriptFile != "" {
+		input.TranscriptFile = filepath.Base(*transcriptFile)
+	}
+	run, pipelineErr := runner.Run(ctx, input)
 	if pipelineErr != nil {
 		if run.ID == "" {
 			log.Fatalf("run pipeline: %v", pipelineErr)

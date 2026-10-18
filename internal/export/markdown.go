@@ -41,6 +41,9 @@ func buildRequirementsMarkdown(audit domain.AuditRun, document requirements.Refi
 	fmt.Fprintf(&output, "# Documento de Requisitos\n\n")
 	fmt.Fprintf(&output, "- **Reunião:** %s\n", markdownInline(audit.Meeting.Title))
 	fmt.Fprintf(&output, "- **Idioma:** %s\n", markdownInline(audit.Meeting.Language))
+	if audit.Meeting.TranscriptFile != "" {
+		fmt.Fprintf(&output, "- **Origem:** transcrição importada de %s (sem transcrição de áudio).\n", markdownInline(audit.Meeting.TranscriptFile))
+	}
 	fmt.Fprintf(&output, "- **Meeting ID:** `%s`\n", audit.Meeting.ID)
 	fmt.Fprintf(&output, "- **Run ID:** `%s`\n", audit.Run.ID)
 	fmt.Fprintf(&output, "- **Gerado em:** %s\n\n", generatedAt.Format(time.RFC3339))

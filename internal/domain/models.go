@@ -20,6 +20,7 @@ type StageName string
 
 const (
 	StageAudioTranscription    StageName = "audio_transcription"
+	StageTranscriptImport      StageName = "transcript_import"
 	StageRequirementExtraction StageName = "requirement_extraction"
 	StageRequirementReview     StageName = "requirement_review"
 	StageGapAnalysis           StageName = "gap_analysis"
@@ -60,12 +61,14 @@ type ValidationIssue struct {
 }
 
 type Meeting struct {
-	ID        string    `bson:"_id" json:"id"`
-	Title     string    `bson:"title" json:"title"`
-	AudioFile string    `bson:"audio_file" json:"audio_file"`
-	Language  string    `bson:"language" json:"language"`
-	Status    Status    `bson:"status" json:"status"`
-	CreatedAt time.Time `bson:"created_at" json:"created_at"`
+	ID             string    `bson:"_id" json:"id"`
+	Title          string    `bson:"title" json:"title"`
+	AudioFile      string    `bson:"audio_file" json:"audio_file"`
+	Transcript     string    `bson:"transcript,omitempty" json:"transcript,omitempty"`
+	TranscriptFile string    `bson:"transcript_file,omitempty" json:"transcript_file,omitempty"`
+	Language       string    `bson:"language" json:"language"`
+	Status         Status    `bson:"status" json:"status"`
+	CreatedAt      time.Time `bson:"created_at" json:"created_at"`
 }
 
 type PipelineRun struct {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/fabiuhp/tcc-3/internal/domain"
 	"github.com/fabiuhp/tcc-3/internal/ports"
+	"github.com/fabiuhp/tcc-3/internal/transcripts"
 )
 
 type Stage interface {
@@ -50,10 +51,12 @@ type Runner struct {
 }
 
 type RunInput struct {
-	MeetingID string
-	Title     string
-	AudioFile string
-	Language  string
+	MeetingID      string
+	Title          string
+	AudioFile      string
+	Transcript     string
+	TranscriptFile string
+	Language       string
 }
 
 func NewRunner(store ports.Store, stages []Stage) *Runner {
@@ -61,13 +64,29 @@ func NewRunner(store ports.Store, stages []Stage) *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, input RunInput) (domain.PipelineRun, error) {
-	if input.AudioFile == "" && input.MeetingID == "" {
-		return domain.PipelineRun{}, errors.New("audio file path is required")
+	if input.MeetingID != "" && (input.AudioFile != "" || input.Transcript != "" || input.TranscriptFile != "") {
+		return domain.PipelineRun{}, errors.New("meeting id cannot be combined with audio or transcript input")
+	}
+	if input.AudioFile != "" && (input.Transcript != "" || input.TranscriptFile != "") {
+		return domain.PipelineRun{}, errors.New("provide either audio or transcript, not both")
+	}
+	if input.Transcript != "" || input.TranscriptFile != "" {
+		if err := transcripts.Validate(input.Transcript); err != nil {
+			return domain.PipelineRun{}, err
+		}
+	}
+	if input.AudioFile == "" && input.Transcript == "" && input.MeetingID == "" {
+		return domain.PipelineRun{}, errors.New("audio file path or transcript is required")
 	}
 
 	meeting, err := r.resolveMeeting(ctx, input)
 	if err != nil {
 		return domain.PipelineRun{}, err
+	}
+	if meeting.Transcript != "" {
+		if err := transcripts.Validate(meeting.Transcript); err != nil {
+			return domain.PipelineRun{}, err
+		}
 	}
 
 	run, err := r.store.CreatePipelineRun(ctx, domain.PipelineRun{
@@ -81,7 +100,16 @@ func (r *Runner) Run(ctx context.Context, input RunInput) (domain.PipelineRun, e
 	}
 
 	artifacts := []domain.Artifact{}
-	for _, pipelineStage := range r.stages {
+	runStages := r.stages
+	if meeting.Transcript != "" {
+		runStages = []Stage{transcriptImportStage{}}
+		for _, stage := range r.stages {
+			if stage.Name() != domain.StageAudioTranscription {
+				runStages = append(runStages, stage)
+			}
+		}
+	}
+	for _, pipelineStage := range runStages {
 		stageStart := r.now()
 		stage, err := r.store.CreateStage(ctx, domain.StageExecution{
 			ID:               domain.NewID(),
@@ -159,17 +187,29 @@ func (r *Runner) resolveMeeting(ctx context.Context, input RunInput) (domain.Mee
 		}
 		return meeting, nil
 	}
-	if input.AudioFile == "" {
-		return domain.Meeting{}, errors.New("audio file path is required")
+	if input.AudioFile == "" && input.Transcript == "" {
+		return domain.Meeting{}, errors.New("audio file path or transcript is required")
 	}
 	return r.store.CreateMeeting(ctx, domain.Meeting{
-		ID:        domain.NewID(),
-		Title:     cmp.Or(input.Title, "Untitled meeting"),
-		AudioFile: input.AudioFile,
-		Language:  cmp.Or(input.Language, "pt-BR"),
-		Status:    domain.StatusReady,
-		CreatedAt: r.now(),
+		ID:             domain.NewID(),
+		Title:          cmp.Or(input.Title, "Untitled meeting"),
+		AudioFile:      input.AudioFile,
+		Transcript:     input.Transcript,
+		TranscriptFile: input.TranscriptFile,
+		Language:       cmp.Or(input.Language, "pt-BR"),
+		Status:         domain.StatusReady,
+		CreatedAt:      r.now(),
 	})
+}
+
+type transcriptImportStage struct{}
+
+func (transcriptImportStage) Name() domain.StageName { return domain.StageTranscriptImport }
+
+func (transcriptImportStage) Execute(_ context.Context, ctx StageContext) (StageResult, error) {
+	return StageResult{Artifacts: []domain.Artifact{{
+		ID: domain.NewID(), Type: domain.ArtifactTranscript, Content: ctx.Meeting.Transcript,
+	}}}, nil
 }
 
 func MustFindArtifact(artifacts []domain.Artifact, artifactType domain.ArtifactType) (domain.Artifact, error) {

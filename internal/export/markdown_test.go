@@ -75,6 +75,27 @@ func TestWriteRequirementsMarkdownIncludesRequirementProblems(t *testing.T) {
 	}
 }
 
+func TestWriteRequirementsMarkdownIdentifiesImportedTranscript(t *testing.T) {
+	audit := domain.AuditRun{
+		Meeting:   domain.Meeting{ID: "meeting-import", Title: "Meet", TranscriptFile: "Reunião do Meet.md"},
+		Run:       domain.PipelineRun{ID: "run-import"},
+		Artifacts: []domain.Artifact{{Type: domain.ArtifactRefinedRequirements, Content: refinedRequirementsJSON}},
+	}
+	path, err := export.WriteRequirementsMarkdown(t.TempDir(), audit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"transcrição importada de Reunião do Meet.md", "sem transcrição de áudio", "Artefato de origem: `transcript-1`"} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("markdown missing %q", want)
+		}
+	}
+}
+
 func TestWriteRequirementsMarkdownFallsBackForInvalidStructuredRequirements(t *testing.T) {
 	audit := domain.AuditRun{
 		Meeting: domain.Meeting{ID: "meeting-1"},

@@ -28,10 +28,101 @@ func TestServerRendersUploadForm(t *testing.T) {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"Gerar documento de requisitos", "name=\"audio\"", "Processar audio"} {
+	for _, want := range []string{"Gerar documento de requisitos", "name=\"audio\"", "name=\"transcript\"", "Gerar requisitos", "Google Meet", "pular a transcrição"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %q", want)
 		}
+	}
+}
+
+func TestServerImportsMarkdownTranscript(t *testing.T) {
+	runner := &fakeRunner{runID: "imported-run"}
+	exporter := &fakeExporter{}
+	server := newTestServer(t, runner, exporter)
+	text := "## Transcrição\n\n### 00:01:28\n\n**Cliente:** Preciso acompanhar o pedido.\n"
+	body, contentType := multipartBody(t, "transcript", "Reunião do Meet.md", text)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/process", body)
+	request.Header.Set("Content-Type", contentType)
+	server.Handler().ServeHTTP(recorder, request)
+	input := runner.lastInput
+	if runner.calls != 1 || input.AudioFile != "" || input.Transcript != text || input.TranscriptFile != "Reunião do Meet.md" {
+		t.Fatalf("incorrect transcript input: %+v (calls %d)", input, runner.calls)
+	}
+	if input.Title != "Reunião do Meet" || input.Language != "pt-BR" {
+		t.Fatalf("incorrect defaults: %+v", input)
+	}
+	files, err := os.ReadDir(server.config.UploadDir)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("transcript left temporary files: %v, %v", files, err)
+	}
+	if exporter.runID != "imported-run" || !strings.Contains(recorder.Body.String(), "/downloads/result.md") {
+		t.Fatal("missing transcript result download")
+	}
+}
+
+func TestServerRejectsInvalidTranscripts(t *testing.T) {
+	for _, test := range []struct{ name, text, message string }{
+		{"meeting.txt", "text", ".md"},
+		{"empty.md", "", "vazio"},
+		{"spaces.md", " \n\t", "vazia"},
+		{"binary.md", "\x00\xff", "UTF-8"},
+		{"huge.md", strings.Repeat("a", (2<<20)+1), "2 MiB"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{}
+			server := newTestServer(t, runner, &fakeExporter{})
+			body, contentType := multipartBody(t, "transcript", test.name, test.text)
+			request := httptest.NewRequest(http.MethodPost, "/process", body)
+			request.Header.Set("Content-Type", contentType)
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, request)
+			if runner.calls != 0 || !strings.Contains(recorder.Body.String(), test.message) {
+				t.Fatalf("invalid transcript accepted or wrong error: calls=%d, body=%s", runner.calls, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestServerRejectsMultipleSources(t *testing.T) {
+	for _, fields := range [][]string{{"audio", "transcript"}, {"transcript", "transcript"}} {
+		runner := &fakeRunner{}
+		server := newTestServer(t, runner, &fakeExporter{})
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		for _, field := range fields {
+			part, err := writer.CreateFormFile(field, "meeting.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(part, "transcript"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/process", &body)
+		request.Header.Set("Content-Type", writer.FormDataContentType())
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		if runner.calls != 0 || !strings.Contains(recorder.Body.String(), "apenas um arquivo") {
+			t.Fatal("server did not reject multiple sources")
+		}
+	}
+}
+
+func TestServerRejectsUploadOverLimit(t *testing.T) {
+	runner := &fakeRunner{}
+	server := newTestServer(t, runner, &fakeExporter{})
+	server.config.MaxUploadBytes = 100
+	body, contentType := multipartBody(t, "transcript", "meet.md", strings.Repeat("a", 101))
+	request := httptest.NewRequest(http.MethodPost, "/process", body)
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if runner.calls != 0 || !strings.Contains(recorder.Body.String(), "excede o limite") {
+		t.Fatal("server did not reject oversized request")
 	}
 }
 

@@ -134,6 +134,72 @@ func TestRunnerRejectsMissingAudio(t *testing.T) {
 	}
 }
 
+func TestRunnerImportsTranscriptWithoutSpeechProviderAndReprocesses(t *testing.T) {
+	ctx := context.Background()
+	store := repository.NewMemoryStore()
+	defaultPrompts := seedPrompts(t, ctx, store)
+	provider := providers.MockAIProvider{
+		TranscriptionErr: errors.New("speech provider must not be called"),
+		GenerationFunc:   pipelineStructuredGeneration,
+	}
+	runner := pipeline.NewRunner(store, stages.DefaultStages(provider, provider, prompts.Registry(defaultPrompts), stages.Models{Text: "text-model"}))
+	text := "## Transcrição\n\n### 00:00:00\n\n**Cliente:** meeting transcript\n"
+	first, err := runner.Run(ctx, pipeline.RunInput{Title: "Meet", Transcript: text, TranscriptFile: "meet.md"})
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	second, err := runner.Run(ctx, pipeline.RunInput{MeetingID: first.MeetingID})
+	if err != nil {
+		t.Fatalf("reprocess: %v", err)
+	}
+	if second.ID == first.ID {
+		t.Fatal("reprocessing reused run id")
+	}
+	for _, run := range []domain.PipelineRun{first, second} {
+		audit, err := store.ReconstructRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.Status != domain.StatusCompleted || len(audit.Stages) != 7 || len(audit.Artifacts) != 10 {
+			t.Fatalf("unexpected imported run: %+v", audit)
+		}
+		if audit.Meeting.AudioFile != "" || audit.Meeting.Transcript != text || audit.Meeting.TranscriptFile != "meet.md" {
+			t.Fatalf("source not persisted: %+v", audit.Meeting)
+		}
+		firstStage := audit.Stages[0]
+		if firstStage.Name != domain.StageTranscriptImport || firstStage.Model != "" || firstStage.Tokens != (domain.TokenMetrics{}) {
+			t.Fatalf("import should not use AI: %+v", firstStage)
+		}
+		for _, stage := range audit.Stages {
+			if stage.Name == domain.StageAudioTranscription {
+				t.Fatal("audio transcription was not skipped")
+			}
+		}
+		transcript, err := pipeline.MustFindArtifact(audit.Artifacts, domain.ArtifactTranscript)
+		if err != nil || transcript.Content != text || transcript.StageID != firstStage.ID {
+			t.Fatalf("imported transcript = %+v, %v", transcript, err)
+		}
+		if len(audit.Stages[1].InputArtifactIDs) != 1 || audit.Stages[1].InputArtifactIDs[0] != transcript.ID {
+			t.Fatal("extraction is not linked to the imported transcript")
+		}
+	}
+}
+
+func TestRunnerRejectsInvalidSources(t *testing.T) {
+	for _, input := range []pipeline.RunInput{
+		{Transcript: " \n"},
+		{TranscriptFile: "empty.md"},
+		{AudioFile: "meeting.mp3", Transcript: "text"},
+		{MeetingID: "existing", Transcript: "text"},
+		{MeetingID: "existing", AudioFile: "meeting.mp3"},
+	} {
+		runner := pipeline.NewRunner(repository.NewMemoryStore(), nil)
+		if _, err := runner.Run(context.Background(), input); err == nil {
+			t.Fatalf("accepted invalid source: %+v", input)
+		}
+	}
+}
+
 func TestRunnerDefaultsNewMeetingFields(t *testing.T) {
 	ctx := context.Background()
 	store := repository.NewMemoryStore()

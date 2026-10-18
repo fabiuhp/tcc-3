@@ -24,3 +24,10 @@ coverage.out
 # OS/editor noise
 .DS_Store
 *.log
+
+# documentos especificos
+overleaf
+overleaf-referencias
+resultados
+reunioes-transcricoes
+docs

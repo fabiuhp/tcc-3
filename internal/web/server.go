@@ -18,6 +18,7 @@ import (
 
 	"github.com/fabiuhp/tcc-3/internal/domain"
 	"github.com/fabiuhp/tcc-3/internal/pipeline"
+	"github.com/fabiuhp/tcc-3/internal/transcripts"
 )
 
 const defaultMaxUploadBytes = 100 << 20
@@ -105,14 +106,17 @@ func (s *Server) process(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	audioPath, originalName, err := s.saveUpload(w, r)
+	input, originalName, err := s.saveUpload(w, r)
 	if err != nil {
 		s.render(w, pageData{DefaultLanguage: s.config.DefaultLanguage, Error: err.Error()})
 		return
 	}
 	defer func() {
-		if err := os.Remove(audioPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			s.logger.Printf("remove upload %s: %v", audioPath, err)
+		if input.AudioFile == "" {
+			return
+		}
+		if err := os.Remove(input.AudioFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.logger.Printf("remove upload %s: %v", input.AudioFile, err)
 		}
 	}()
 
@@ -125,7 +129,9 @@ func (s *Server) process(w http.ResponseWriter, r *http.Request) {
 		title = strings.TrimSuffix(originalName, filepath.Ext(originalName))
 	}
 
-	run, pipelineErr := s.runner.Run(r.Context(), pipeline.RunInput{Title: title, AudioFile: audioPath, Language: language})
+	input.Title = title
+	input.Language = language
+	run, pipelineErr := s.runner.Run(r.Context(), input)
 	if pipelineErr != nil {
 		s.logger.Printf("pipeline failed run_id=%s error=%v", run.ID, pipelineErr)
 		if run.ID == "" {
@@ -214,37 +220,62 @@ func formatValidationIssues(issues []domain.ValidationIssue) string {
 	return "Processamento concluido com ressalvas: " + strings.Join(details, " | ")
 }
 
-func (s *Server) saveUpload(w http.ResponseWriter, r *http.Request) (string, string, error) {
+func (s *Server) saveUpload(w http.ResponseWriter, r *http.Request) (pipeline.RunInput, string, error) {
+	var input pipeline.RunInput
 	r.Body = http.MaxBytesReader(w, r.Body, s.config.MaxUploadBytes)
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		return "", "", fmt.Errorf("selecione um arquivo de audio")
+	err := r.ParseMultipartForm(32 << 20)
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
 	}
-
-	file, header, err := r.FormFile("audio")
 	if err != nil {
-		return "", "", fmt.Errorf("selecione um arquivo de audio")
+		var sizeErr *http.MaxBytesError
+		if errors.As(err, &sizeErr) {
+			return input, "", fmt.Errorf("o upload excede o limite de %d bytes", s.config.MaxUploadBytes)
+		}
+		return input, "", fmt.Errorf("selecione um arquivo de audio ou uma transcricao .md")
+	}
+	field := "audio"
+	audioFiles := r.MultipartForm.File["audio"]
+	transcriptFiles := r.MultipartForm.File["transcript"]
+	if len(audioFiles)+len(transcriptFiles) != 1 {
+		return input, "", fmt.Errorf("envie apenas um arquivo: audio ou transcricao .md")
+	}
+	if len(transcriptFiles) == 1 {
+		field = "transcript"
+	}
+	file, header, err := r.FormFile(field)
+	if err != nil {
+		return input, "", fmt.Errorf("selecione um arquivo de audio ou uma transcricao .md")
 	}
 	defer file.Close()
 	if header.Filename == "" || header.Size == 0 {
-		return "", "", fmt.Errorf("selecione um arquivo de audio")
+		return input, "", fmt.Errorf("o arquivo esta vazio; selecione um audio ou uma transcricao .md com conteudo")
+	}
+	name := filepath.Base(header.Filename)
+	if field == "transcript" {
+		text, err := transcripts.ReadMarkdown(name, file)
+		if err != nil {
+			return input, "", err
+		}
+		return pipeline.RunInput{Transcript: text, TranscriptFile: name}, name, nil
 	}
 
 	if err := os.MkdirAll(s.config.UploadDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("nao foi possivel preparar o diretorio de upload")
+		return input, "", fmt.Errorf("nao foi possivel preparar o diretorio de upload")
 	}
 	ext := filepath.Ext(header.Filename)
 	path := filepath.Join(s.config.UploadDir, domain.NewID()+ext)
 	dst, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return "", "", fmt.Errorf("nao foi possivel salvar o upload")
+		return input, "", fmt.Errorf("nao foi possivel salvar o upload")
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
 		_ = os.Remove(path)
-		return "", "", fmt.Errorf("nao foi possivel salvar o upload")
+		return input, "", fmt.Errorf("nao foi possivel salvar o upload")
 	}
-	return path, filepath.Base(header.Filename), nil
+	return pipeline.RunInput{AudioFile: path}, name, nil
 }
 
 func (s *Server) download(w http.ResponseWriter, r *http.Request) {

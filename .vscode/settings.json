@@ -1,0 +1,26 @@
+{
+  "latex-workshop.latex.outDir": "%WORKSPACE_FOLDER%/output/latex/%RELATIVE_DIR%/%DOCFILE%",
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "TCC: PDFLaTeX + BibTeX (latexmk)",
+      "tools": ["tcc-latexmk"]
+    }
+  ],
+  "latex-workshop.latex.tools": [
+    {
+      "name": "tcc-latexmk",
+      "command": "latexmk",
+      "args": [
+        "-cd",
+        "-pdf",
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-halt-on-error",
+        "-file-line-error",
+        "-outdir=%OUTDIR%",
+        "%DOC%"
+      ]
+    }
+  ],
+  "latex-workshop.view.pdf.viewer": "tab"
+}

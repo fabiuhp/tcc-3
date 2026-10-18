@@ -13,7 +13,7 @@
       <div class="card-body p-4 p-md-5">
         <p class="text-uppercase text-secondary small mb-2">Requirement Pipeline</p>
         <h1 class="h3 mb-3">Gerar documento de requisitos</h1>
-        <p class="text-secondary mb-4">Envie o audio da reuniao, aguarde o processamento e baixe o Markdown final.</p>
+        <p class="text-secondary mb-4">Envie o áudio ou uma transcrição da reunião e baixe o documento de requisitos em Markdown.</p>
 
         {{if .Error}}
         <div class="alert alert-danger" role="alert">{{.Error}}</div>
@@ -40,19 +40,25 @@
             <label class="form-label" for="language">Idioma</label>
             <input class="form-control" id="language" name="language" type="text" value="{{.DefaultLanguage}}">
           </div>
+          <div class="mb-3">
+            <label class="form-label" for="audio">Áudio da reunião</label>
+            <input class="form-control" id="audio" name="audio" type="file" accept="audio/*" aria-describedby="audio-help">
+            <div id="audio-help" class="form-text">O áudio será transcrito antes da extração dos requisitos.</div>
+          </div>
           <div class="mb-4">
-            <label class="form-label" for="audio">Audio</label>
-            <input class="form-control" id="audio" name="audio" type="file" accept="audio/*" required>
+            <label class="form-label" for="transcript">Ou importe uma transcrição (.md)</label>
+            <input class="form-control" id="transcript" name="transcript" type="file" accept=".md,text/markdown" aria-describedby="transcript-help">
+            <div id="transcript-help" class="form-text">Já tem a transcrição do Google Meet? Envie o Markdown (até 2 MiB) para pular a transcrição do áudio. Escolha apenas um arquivo.</div>
           </div>
           <button id="submit-button" class="btn btn-primary w-100" type="submit">
             <span id="submit-spinner" class="button-spinner me-2" aria-hidden="true" hidden></span>
-            <span id="submit-label">Processar audio</span>
+            <span id="submit-label">Gerar requisitos</span>
           </button>
 
           <div id="processing-state" class="processing-state mt-4" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden>
             <span class="processing-spinner" aria-hidden="true"></span>
             <div class="processing-copy">
-              <strong>Enviando e processando o audio</strong>
+              <strong id="processing-title">Enviando e processando o arquivo</strong>
               <span>Isso pode levar alguns minutos. Mantenha esta pagina aberta enquanto preparamos o documento.</span>
               <span class="processing-track" aria-hidden="true"><span></span></span>
             </div>
@@ -67,10 +73,29 @@
     const submitLabel = document.getElementById('submit-label');
     const submitSpinner = document.getElementById('submit-spinner');
     const processingState = document.getElementById('processing-state');
+    const audioInput = document.getElementById('audio');
+    const transcriptInput = document.getElementById('transcript');
+    const processingTitle = document.getElementById('processing-title');
+
+    function validateSource() {
+      const count = audioInput.files.length + transcriptInput.files.length;
+      audioInput.setCustomValidity(count === 0 ? 'Selecione um áudio ou uma transcrição .md.' :
+        count > 1 ? 'Escolha apenas um arquivo: áudio ou transcrição .md.' : '');
+      transcriptInput.setCustomValidity(transcriptInput.files.length && transcriptInput.files[0].size > 2 * 1024 * 1024 ?
+        'A transcrição deve ter no máximo 2 MiB.' : '');
+    }
+
+    audioInput.addEventListener('change', validateSource);
+    transcriptInput.addEventListener('change', validateSource);
 
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       if (form.dataset.submitting === 'true') {
+        return;
+      }
+
+      validateSource();
+      if (!form.reportValidity()) {
         return;
       }
 
@@ -81,6 +106,8 @@
       submitLabel.textContent = 'Processando...';
       submitSpinner.hidden = false;
       processingState.hidden = false;
+      processingTitle.textContent = transcriptInput.files.length ?
+        'Extraindo requisitos da transcrição importada' : 'Enviando e transcrevendo o áudio';
       processingState.focus({ preventScroll: true });
       processingState.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
@@ -99,7 +126,7 @@
       form.classList.remove('is-processing');
       form.removeAttribute('aria-busy');
       submitButton.disabled = false;
-      submitLabel.textContent = 'Processar audio';
+      submitLabel.textContent = 'Gerar requisitos';
       submitSpinner.hidden = true;
       processingState.hidden = true;
     });

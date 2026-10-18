@@ -77,6 +77,17 @@ go run ./cmd/requirement-pipeline \
   -language pt-BR
 ```
 
+Se a reunião já foi transcrita (por exemplo, pelo Google Meet), importe o Markdown diretamente:
+
+```bash
+go run ./cmd/requirement-pipeline \
+  -title "Reunião de descoberta" \
+  -transcript "./reunioes-transcricoes/reuniao.md" \
+  -language pt-BR
+```
+
+Use apenas uma entrada: `-audio` ou `-transcript`. A transcrição deve ser um arquivo `.md` em UTF-8, não vazio, de até 2 MiB. O conteúdo é preservado, incluindo formatação, falas e timestamps; apenas o BOM UTF-8 inicial, quando presente, é removido. Não há chamada à API de transcrição nesse modo, mas as etapas textuais continuam usando a OpenAI.
+
 Ao final, a CLI exporta:
 
 ```text
@@ -98,7 +109,7 @@ Para reprocessar uma reunião existente:
 go run ./cmd/requirement-pipeline -meeting-id "<meeting-id>"
 ```
 
-Cada reprocessamento cria um novo `pipeline_run`.
+Cada reprocessamento cria um novo `pipeline_run`. Reuniões criadas por importação reutilizam o texto persistido no banco, sem depender do arquivo original e sem transcrever áudio. Reuniões criadas com áudio continuam executando a transcrição normalmente.
 
 Para exportar uma execução sem chamar novamente a OpenAI:
 
@@ -112,9 +123,9 @@ go run ./cmd/requirement-pipeline -export-run-id "<pipeline-run-id>"
 go run ./cmd/requirement-pipeline -web
 ```
 
-Por padrão, o servidor escuta somente em `127.0.0.1:8080`. Abra `http://127.0.0.1:8080`, envie o áudio e aguarde o processamento. Durante o envio, a página mostra um estado visual de loading, bloqueia envios duplicados e informa que a operação pode levar alguns minutos.
+Por padrão, o servidor escuta somente em `127.0.0.1:8080`. Abra `http://127.0.0.1:8080`, escolha um áudio **ou** use **“Ou importe uma transcrição (.md)”** para enviar um Markdown do Google Meet ou de outra origem. Envie apenas um arquivo por vez. A importação pula a transcrição do áudio e começa a análise textual. Durante o envio, a página mostra um estado visual de loading, bloqueia envios duplicados e informa que a operação pode levar alguns minutos.
 
-Uploads são salvos temporariamente em `uploads/` e removidos ao final da requisição. Documentos Markdown são salvos em `output/` e servidos por `/downloads/<arquivo>.md`.
+Áudios são salvos temporariamente em `uploads/` e removidos ao final da requisição. Transcrições importadas são lidas e persistidas no MongoDB, sem manter uma cópia do upload em `uploads/`. Documentos Markdown são salvos em `output/` e servidos por `/downloads/<arquivo>.md`.
 
 Falhas de validação são registradas com a etapa, requisito, campo, motivo e ação tomada. Evidências não verificáveis são removidas e o requisito é marcado como `pending` quando não resta nenhuma evidência válida. Mesmo quando uma etapa falha, a aplicação tenta gerar um Markdown parcial com os artefatos disponíveis e inclui o diagnóstico do processamento.
 
@@ -132,6 +143,8 @@ O parâmetro `-addr` permite alterar o endereço, mas publicar o serviço em out
 | 6 | `diagram_generation` | Requisitos refinados | `business_diagrams` | JSON validado |
 | 7 | `artifact_generation` | Requisitos refinados | SRS, histórias, critérios e casos de uso | JSON validado com quatro campos |
 
+Na importação de `.md`, a etapa inicial é `transcript_import` no lugar de `audio_transcription`: ela registra o artefato `transcript` sem modelo de IA nem consumo de tokens. As seis etapas seguintes e a rastreabilidade das evidências permanecem iguais. O Markdown gerado identifica o nome do arquivo importado como origem.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -144,11 +157,15 @@ sequenceDiagram
     participant Normalizer as Normalização Go
     participant Markdown as Exportador Markdown
 
-    Usuario->>Web: Envia áudio
+    Usuario->>Web: Envia áudio ou transcrição .md
     Web->>Backend: POST /process
     Backend->>Mongo: Cria meeting e pipeline_run
-    Backend->>STT: Transcreve áudio
-    STT-->>Backend: Texto da reunião
+    alt Entrada de áudio
+        Backend->>STT: Transcreve áudio
+        STT-->>Backend: Texto da reunião
+    else Transcrição .md
+        Backend->>Backend: Importa texto sem chamar STT
+    end
     Backend->>Mongo: Persiste transcript
     Backend->>LLM: Extrai requisitos em JSON
     LLM-->>Normalizer: Candidatos e citações
@@ -530,6 +547,7 @@ A aplicação usa cinco coleções:
 - `_id`: ID da reunião;
 - `title`: título informado;
 - `audio_file`: caminho do áudio;
+- `transcript` e `transcript_file`: texto e nome do arquivo de origem, presentes nas reuniões criadas por importação de `.md`;
 - `language`: idioma dos prompts;
 - `status`: atualmente criado como `ready`;
 - `created_at`: data de criação.
