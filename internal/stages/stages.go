@@ -61,7 +61,12 @@ type TextStage struct {
 	normalize  textResponseNormalizer
 }
 
-type textResponseNormalizer func(string, map[domain.ArtifactType]domain.Artifact) (string, error)
+type normalizedTextResponse struct {
+	Content string
+	Issues  []domain.ValidationIssue
+}
+
+type textResponseNormalizer func(string, map[domain.ArtifactType]domain.Artifact) (normalizedTextResponse, error)
 
 func (s TextStage) Name() domain.StageName { return s.name }
 
@@ -83,37 +88,47 @@ func (s TextStage) Execute(ctx context.Context, stageCtx pipeline.StageContext) 
 		return pipeline.StageResult{Model: s.model}, err
 	}
 	content := response.Text
+	var issues []domain.ValidationIssue
 	if s.normalize != nil {
-		content, err = s.normalize(response.Text, inputs)
+		normalized, normalizeErr := s.normalize(response.Text, inputs)
+		content = normalized.Content
+		issues = normalized.Issues
+		err = normalizeErr
 		if err != nil {
 			return pipeline.StageResult{Model: response.Model, Tokens: response.Tokens}, err
 		}
 	}
 	return pipeline.StageResult{
-		Artifacts: []domain.Artifact{{ID: domain.NewID(), Type: s.outputType, Content: content}},
-		Model:     response.Model,
-		Tokens:    response.Tokens,
+		Artifacts:        []domain.Artifact{{ID: domain.NewID(), Type: s.outputType, Content: content}},
+		Model:            response.Model,
+		Tokens:           response.Tokens,
+		ValidationIssues: issues,
 	}, nil
 }
 
-func normalizeRequirementDraft(response string, inputs map[domain.ArtifactType]domain.Artifact) (string, error) {
-	return requirements.NormalizeDraft(response, inputs[domain.ArtifactTranscript])
+func normalizeRequirementDraft(response string, inputs map[domain.ArtifactType]domain.Artifact) (normalizedTextResponse, error) {
+	result, err := requirements.NormalizeDraftWithIssues(response, inputs[domain.ArtifactTranscript])
+	return normalizedTextResponse{Content: result.Content, Issues: result.Issues}, err
 }
 
-func normalizeReviewedRequirements(response string, inputs map[domain.ArtifactType]domain.Artifact) (string, error) {
-	return requirements.NormalizeReview(response, inputs[domain.ArtifactRequirementDraft].Content)
+func normalizeReviewedRequirements(response string, inputs map[domain.ArtifactType]domain.Artifact) (normalizedTextResponse, error) {
+	content, err := requirements.NormalizeReview(response, inputs[domain.ArtifactRequirementDraft].Content)
+	return normalizedTextResponse{Content: content}, err
 }
 
-func normalizeGapAnalysis(response string, inputs map[domain.ArtifactType]domain.Artifact) (string, error) {
-	return requirements.NormalizeGapAnalysis(response, inputs[domain.ArtifactReviewedRequirements].Content)
+func normalizeGapAnalysis(response string, inputs map[domain.ArtifactType]domain.Artifact) (normalizedTextResponse, error) {
+	content, err := requirements.NormalizeGapAnalysis(response, inputs[domain.ArtifactReviewedRequirements].Content)
+	return normalizedTextResponse{Content: content}, err
 }
 
-func normalizeRefinedRequirements(response string, inputs map[domain.ArtifactType]domain.Artifact) (string, error) {
-	return requirements.NormalizeRefined(response, inputs[domain.ArtifactReviewedRequirements].Content, inputs[domain.ArtifactGapAnalysis].Content)
+func normalizeRefinedRequirements(response string, inputs map[domain.ArtifactType]domain.Artifact) (normalizedTextResponse, error) {
+	content, err := requirements.NormalizeRefined(response, inputs[domain.ArtifactReviewedRequirements].Content, inputs[domain.ArtifactGapAnalysis].Content)
+	return normalizedTextResponse{Content: content}, err
 }
 
-func normalizeBusinessDiagrams(response string, _ map[domain.ArtifactType]domain.Artifact) (string, error) {
-	return artifactexport.NormalizeBusinessDiagrams(response)
+func normalizeBusinessDiagrams(response string, _ map[domain.ArtifactType]domain.Artifact) (normalizedTextResponse, error) {
+	content, err := artifactexport.NormalizeBusinessDiagrams(response)
+	return normalizedTextResponse{Content: content}, err
 }
 
 type ArtifactGenerationStage struct {

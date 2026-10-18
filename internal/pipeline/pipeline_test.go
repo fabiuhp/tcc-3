@@ -66,6 +66,36 @@ func TestRunnerCompletesStagesAndPersistsArtifacts(t *testing.T) {
 	}
 }
 
+func TestRunnerCompletesWithValidationIssuesAndPersistsDiagnostics(t *testing.T) {
+	ctx := context.Background()
+	store := repository.NewMemoryStore()
+	defaultPrompts := seedPrompts(t, ctx, store)
+	provider := providers.MockAIProvider{TranscriptionText: "meeting transcript", GenerationFunc: validationIssueGeneration}
+	runner := pipeline.NewRunner(store, stages.DefaultStages(provider, provider, prompts.Registry(defaultPrompts), stages.Models{Transcription: "gpt-4o-transcribe", Text: "gpt-5"}))
+
+	run, err := runner.Run(ctx, pipeline.RunInput{Title: "Discovery", AudioFile: "meeting.mp3", Language: "pt-BR"})
+	if err != nil {
+		t.Fatalf("run pipeline: %v", err)
+	}
+	if run.Status != domain.StatusCompletedWithIssues {
+		t.Fatalf("run status = %s, want completed_with_issues", run.Status)
+	}
+	if len(run.ValidationIssues) < 2 {
+		t.Fatalf("run validation issues = %+v", run.ValidationIssues)
+	}
+
+	audit, err := store.ReconstructRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("reconstruct run: %v", err)
+	}
+	if audit.Stages[1].Status != domain.StatusCompletedWithIssues {
+		t.Fatalf("extraction stage status = %s, want completed_with_issues", audit.Stages[1].Status)
+	}
+	if len(audit.Stages[1].ValidationIssues) < 2 {
+		t.Fatalf("extraction stage issues = %+v", audit.Stages[1].ValidationIssues)
+	}
+}
+
 func TestRunnerStopsAfterFailedStage(t *testing.T) {
 	ctx := context.Background()
 	store := repository.NewMemoryStore()
@@ -178,6 +208,21 @@ func pipelineStructuredGeneration(request ports.TextGenerationRequest) (ports.Te
 		text = pipelineReviewResponseJSON
 	default:
 		text = pipelineDraftResponseJSON
+	}
+	return ports.TextGenerationResponse{Text: text, Model: request.Model, Tokens: domain.TokenMetrics{InputTokens: 2, OutputTokens: 3, TotalTokens: 5}}, nil
+}
+
+func validationIssueGeneration(request ports.TextGenerationRequest) (ports.TextGenerationResponse, error) {
+	var text string
+	switch {
+	case strings.Contains(request.Prompt, "<transcript_data>"):
+		text = `{"requirements":[{"type":"functional","statement":"O sistema deve emitir nota fiscal.","status":"confirmed","evidence":[{"quote":"O sistema precisa emitir nota fiscal."}]}]}`
+	case strings.Contains(request.Prompt, "Você é um revisor sênior"):
+		text = `{"requirements":[{"id":"REQ-0001","type":"functional","statement":"O sistema deve emitir nota fiscal.","status":"pending","review":{"outcome":"needs_clarification","findings":["A evidência da emissão precisa ser confirmada."]}}]}`
+	case strings.Contains(request.Prompt, "Refine a redação"):
+		text = `{"requirements":[{"id":"REQ-0001","statement":"O sistema deve emitir nota fiscal.","status":"pending"}]}`
+	default:
+		return pipelineStructuredGeneration(request)
 	}
 	return ports.TextGenerationResponse{Text: text, Model: request.Model, Tokens: domain.TokenMetrics{InputTokens: 2, OutputTokens: 3, TotalTokens: 5}}, nil
 }

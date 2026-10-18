@@ -74,15 +74,28 @@ func main() {
 		log.Fatalf("initialize pipeline: %v", err)
 	}
 
-	run, err := runner.Run(ctx, pipeline.RunInput{MeetingID: *meetingID, Title: *title, AudioFile: *audio, Language: *language})
-	if err != nil {
-		log.Fatalf("run pipeline: %v", err)
+	run, pipelineErr := runner.Run(ctx, pipeline.RunInput{MeetingID: *meetingID, Title: *title, AudioFile: *audio, Language: *language})
+	if pipelineErr != nil {
+		if run.ID == "" {
+			log.Fatalf("run pipeline: %v", pipelineErr)
+		}
+		log.Printf("pipeline failed run_id=%s error=%v; exporting partial Markdown", run.ID, pipelineErr)
 	}
-	fmt.Printf("pipeline run completed: %s\n", run.ID)
+	for _, issue := range run.ValidationIssues {
+		log.Printf("pipeline validation issue run_id=%s stage=%s item=%s field=%s code=%s action=%s value=%q message=%s", run.ID, issue.Stage, issue.Item, issue.Field, issue.Code, issue.Action, issue.Value, issue.Message)
+	}
 
-	markdownPath, err := exportRun(ctx, store, run.ID, *outputDir)
-	if err != nil {
-		log.Fatalf("export requirements Markdown: %v", err)
+	markdownPath, exportErr := exportRun(ctx, store, run.ID, *outputDir)
+	if exportErr != nil {
+		if run.ID != "" {
+			log.Fatalf("export requirements Markdown for run %s: %v", run.ID, exportErr)
+		}
+		log.Fatalf("export requirements Markdown: %v", exportErr)
+	}
+	if run.Status == domain.StatusCompletedWithIssues || pipelineErr != nil {
+		fmt.Printf("pipeline run completed with issues: %s\n", run.ID)
+	} else {
+		fmt.Printf("pipeline run completed: %s\n", run.ID)
 	}
 	fmt.Printf("requirements Markdown generated: %s\n", markdownPath)
 }

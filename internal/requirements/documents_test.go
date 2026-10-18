@@ -80,11 +80,28 @@ func TestNormalizeRequirementDocumentsPreservesTraceability(t *testing.T) {
 	}
 }
 
-func TestNormalizeDraftRejectsEvidenceOutsideTranscript(t *testing.T) {
+func TestNormalizeDraftMarksEvidenceOutsideTranscript(t *testing.T) {
 	response := `{"requirements":[{"type":"functional","statement":"O sistema deve emitir nota fiscal.","status":"confirmed","evidence":[{"quote":"O sistema precisa emitir nota fiscal."}]}]}`
-	_, err := requirements.NormalizeDraft(response, domain.Artifact{ID: "transcript-1", Content: transcriptText})
-	if err == nil || !strings.Contains(err.Error(), "no quote that can be verified") {
-		t.Fatalf("error = %v, want evidence validation error", err)
+	content, err := requirements.NormalizeDraft(response, domain.Artifact{ID: "transcript-1", Content: transcriptText})
+	if err != nil {
+		t.Fatalf("normalize draft: %v", err)
+	}
+	document, err := requirements.ParseDraft(content)
+	if err != nil {
+		t.Fatalf("parse draft: %v", err)
+	}
+	requirement := document.Requirements[0]
+	if requirement.Status != requirements.StatusPending {
+		t.Fatalf("status = %q, want pending", requirement.Status)
+	}
+	if len(requirement.Evidence) != 0 {
+		t.Fatalf("evidence count = %d, want 0", len(requirement.Evidence))
+	}
+	if len(requirement.Problems) < 2 {
+		t.Fatalf("problems = %+v, want evidence and status problems", requirement.Problems)
+	}
+	if !strings.Contains(content, "evidence_quote_unverifiable") || !strings.Contains(content, "status_downgraded") {
+		t.Fatalf("normalized draft does not expose validation problems: %s", content)
 	}
 }
 
@@ -101,8 +118,27 @@ func TestNormalizeDraftDiscardsUnverifiableAndDuplicateEvidence(t *testing.T) {
 	if len(document.Requirements[0].Evidence) != 1 {
 		t.Fatalf("validated evidence count = %d, want 1", len(document.Requirements[0].Evidence))
 	}
+	if len(document.Requirements[0].Problems) != 2 {
+		t.Fatalf("validation problems = %d, want 2", len(document.Requirements[0].Problems))
+	}
 	if document.Requirements[0].Evidence[0].ArtifactID != "transcript-1" {
 		t.Fatalf("artifact id = %q, want transcript-1", document.Requirements[0].Evidence[0].ArtifactID)
+	}
+}
+
+func TestNormalizeDraftWithIssuesReturnsAffectedRequirement(t *testing.T) {
+	response := `{"requirements":[{"type":"functional","statement":"O sistema deve emitir nota fiscal.","status":"confirmed","evidence":[{"quote":"O sistema precisa emitir nota fiscal."}]}]}`
+	result, err := requirements.NormalizeDraftWithIssues(response, domain.Artifact{ID: "transcript-1", Content: transcriptText})
+	if err != nil {
+		t.Fatalf("normalize draft: %v", err)
+	}
+	if len(result.Issues) < 2 {
+		t.Fatalf("issues = %+v, want evidence and status issues", result.Issues)
+	}
+	for _, issue := range result.Issues {
+		if issue.Item != "REQ-0001" || issue.Stage != "" {
+			t.Fatalf("issue = %+v, want REQ-0001 without stage before runner", issue)
+		}
 	}
 }
 

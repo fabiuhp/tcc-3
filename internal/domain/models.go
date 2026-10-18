@@ -9,10 +9,11 @@ import (
 type Status string
 
 const (
-	StatusReady     Status = "ready"
-	StatusRunning   Status = "running"
-	StatusCompleted Status = "completed"
-	StatusFailed    Status = "failed"
+	StatusReady               Status = "ready"
+	StatusRunning             Status = "running"
+	StatusCompleted           Status = "completed"
+	StatusCompletedWithIssues Status = "completed_with_issues"
+	StatusFailed              Status = "failed"
 )
 
 type StageName string
@@ -48,6 +49,16 @@ type TokenMetrics struct {
 	TotalTokens  int `bson:"total_tokens" json:"total_tokens"`
 }
 
+type ValidationIssue struct {
+	Stage   StageName `bson:"stage,omitempty" json:"stage,omitempty"`
+	Code    string    `bson:"code" json:"code"`
+	Item    string    `bson:"item" json:"item"`
+	Field   string    `bson:"field,omitempty" json:"field,omitempty"`
+	Message string    `bson:"message" json:"message"`
+	Value   string    `bson:"value,omitempty" json:"value,omitempty"`
+	Action  string    `bson:"action,omitempty" json:"action,omitempty"`
+}
+
 type Meeting struct {
 	ID        string    `bson:"_id" json:"id"`
 	Title     string    `bson:"title" json:"title"`
@@ -58,28 +69,30 @@ type Meeting struct {
 }
 
 type PipelineRun struct {
-	ID            string     `bson:"_id" json:"id"`
-	MeetingID     string     `bson:"meeting_id" json:"meeting_id"`
-	StartedAt     time.Time  `bson:"started_at" json:"started_at"`
-	FinishedAt    *time.Time `bson:"finished_at,omitempty" json:"finished_at,omitempty"`
-	Status        Status     `bson:"status" json:"status"`
-	FailedStageID string     `bson:"failed_stage_id,omitempty" json:"failed_stage_id,omitempty"`
-	Error         string     `bson:"error,omitempty" json:"error,omitempty"`
+	ID               string            `bson:"_id" json:"id"`
+	MeetingID        string            `bson:"meeting_id" json:"meeting_id"`
+	StartedAt        time.Time         `bson:"started_at" json:"started_at"`
+	FinishedAt       *time.Time        `bson:"finished_at,omitempty" json:"finished_at,omitempty"`
+	Status           Status            `bson:"status" json:"status"`
+	FailedStageID    string            `bson:"failed_stage_id,omitempty" json:"failed_stage_id,omitempty"`
+	Error            string            `bson:"error,omitempty" json:"error,omitempty"`
+	ValidationIssues []ValidationIssue `bson:"validation_issues,omitempty" json:"validation_issues,omitempty"`
 }
 
 type StageExecution struct {
-	ID                string       `bson:"_id" json:"id"`
-	RunID             string       `bson:"run_id" json:"run_id"`
-	Name              StageName    `bson:"name" json:"name"`
-	Status            Status       `bson:"status" json:"status"`
-	StartedAt         time.Time    `bson:"started_at" json:"started_at"`
-	FinishedAt        *time.Time   `bson:"finished_at,omitempty" json:"finished_at,omitempty"`
-	Model             string       `bson:"model,omitempty" json:"model,omitempty"`
-	DurationMillis    int64        `bson:"duration_millis" json:"duration_millis"`
-	Tokens            TokenMetrics `bson:"tokens" json:"tokens"`
-	InputArtifactIDs  []string     `bson:"input_artifact_ids" json:"input_artifact_ids"`
-	OutputArtifactIDs []string     `bson:"output_artifact_ids" json:"output_artifact_ids"`
-	Error             string       `bson:"error,omitempty" json:"error,omitempty"`
+	ID                string            `bson:"_id" json:"id"`
+	RunID             string            `bson:"run_id" json:"run_id"`
+	Name              StageName         `bson:"name" json:"name"`
+	Status            Status            `bson:"status" json:"status"`
+	StartedAt         time.Time         `bson:"started_at" json:"started_at"`
+	FinishedAt        *time.Time        `bson:"finished_at,omitempty" json:"finished_at,omitempty"`
+	Model             string            `bson:"model,omitempty" json:"model,omitempty"`
+	DurationMillis    int64             `bson:"duration_millis" json:"duration_millis"`
+	Tokens            TokenMetrics      `bson:"tokens" json:"tokens"`
+	InputArtifactIDs  []string          `bson:"input_artifact_ids" json:"input_artifact_ids"`
+	OutputArtifactIDs []string          `bson:"output_artifact_ids" json:"output_artifact_ids"`
+	Error             string            `bson:"error,omitempty" json:"error,omitempty"`
+	ValidationIssues  []ValidationIssue `bson:"validation_issues,omitempty" json:"validation_issues,omitempty"`
 }
 
 type Artifact struct {

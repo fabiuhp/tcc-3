@@ -33,12 +33,26 @@ type Evidence struct {
 	Quote      string `json:"quote"`
 }
 
+type RequirementProblem struct {
+	Code    string `json:"code"`
+	Field   string `json:"field,omitempty"`
+	Message string `json:"message"`
+	Value   string `json:"value,omitempty"`
+	Action  string `json:"action,omitempty"`
+}
+
 type Requirement struct {
-	ID        string            `json:"id"`
-	Type      RequirementType   `json:"type"`
-	Statement string            `json:"statement"`
-	Status    RequirementStatus `json:"status"`
-	Evidence  []Evidence        `json:"evidence"`
+	ID        string               `json:"id"`
+	Type      RequirementType      `json:"type"`
+	Statement string               `json:"statement"`
+	Status    RequirementStatus    `json:"status"`
+	Evidence  []Evidence           `json:"evidence"`
+	Problems  []RequirementProblem `json:"problems,omitempty"`
+}
+
+type NormalizationResult struct {
+	Content string
+	Issues  []domain.ValidationIssue
 }
 
 type DraftDocument struct {
@@ -149,14 +163,20 @@ type refinementResponseRequirement struct {
 }
 
 func NormalizeDraft(response string, transcript domain.Artifact) (string, error) {
+	result, err := NormalizeDraftWithIssues(response, transcript)
+	return result.Content, err
+}
+
+func NormalizeDraftWithIssues(response string, transcript domain.Artifact) (NormalizationResult, error) {
 	var responseDocument draftResponse
 	if err := decodeStrict(response, &responseDocument); err != nil {
-		return "", fmt.Errorf("parse requirement draft: %w", err)
+		return NormalizationResult{}, fmt.Errorf("parse requirement draft: %w", err)
 	}
 	if responseDocument.Requirements == nil {
-		return "", fmt.Errorf("requirement draft requirements must be an array")
+		return NormalizationResult{}, fmt.Errorf("requirement draft requirements must be an array")
 	}
 	document := DraftDocument{Requirements: make([]Requirement, len(responseDocument.Requirements))}
+	issues := []domain.ValidationIssue{}
 	for i, responseRequirement := range responseDocument.Requirements {
 		evidence := make([]Evidence, len(responseRequirement.Evidence))
 		for j, responseEvidence := range responseRequirement.Evidence {
@@ -170,10 +190,15 @@ func NormalizeDraft(response string, transcript domain.Artifact) (string, error)
 			Evidence:  evidence,
 		}
 		if err := normalizeRequirement(&document.Requirements[i], true, &transcript); err != nil {
-			return "", fmt.Errorf("requirement draft requirement %d: %w", i+1, err)
+			return NormalizationResult{}, fmt.Errorf("requirement draft requirement %d: %w", i+1, err)
 		}
+		issues = append(issues, requirementValidationIssues(document.Requirements[i])...)
 	}
-	return encodeCanonical(document)
+	content, err := encodeCanonical(document)
+	if err != nil {
+		return NormalizationResult{}, err
+	}
+	return NormalizationResult{Content: content, Issues: issues}, nil
 }
 
 func NormalizeReview(response, draftContent string) (string, error) {
@@ -225,6 +250,7 @@ func NormalizeReview(response, draftContent string) (string, error) {
 				Statement: responseRequirement.Statement,
 				Status:    responseRequirement.Status,
 				Evidence:  original.Evidence,
+				Problems:  original.Problems,
 			},
 			Review: responseRequirement.Review,
 		})
@@ -334,6 +360,7 @@ func NormalizeRefined(response, reviewedContent, gapContent string) (string, err
 				Statement: responseRequirement.Statement,
 				Status:    responseRequirement.Status,
 				Evidence:  original.Evidence,
+				Problems:  original.Problems,
 			},
 			RelatedGapIDs: relatedGapIDs[responseRequirement.ID],
 		})
@@ -477,8 +504,24 @@ func normalizeRequirement(requirement *Requirement, requireID bool, transcript *
 	if err := validateRequirementFields(requirement.ID, requirement.Type, requirement.Statement, requirement.Status, requireID); err != nil {
 		return err
 	}
+	if err := normalizeProblems(requirement.Problems); err != nil {
+		return err
+	}
 	if requirement.Evidence == nil || len(requirement.Evidence) == 0 {
-		return fmt.Errorf("evidence must contain at least one source quote")
+		if transcript == nil && len(requirement.Problems) == 0 {
+			return fmt.Errorf("evidence must contain at least one source quote")
+		}
+		requirement.Evidence = []Evidence{}
+		if transcript != nil {
+			addRequirementProblem(requirement, RequirementProblem{
+				Code:    "evidence_required",
+				Field:   "evidence",
+				Message: "No source quote was provided; the requirement was marked pending for review.",
+				Action:  "marked_pending",
+			})
+			markRequirementPending(requirement)
+		}
+		return nil
 	}
 	seenQuotes := make(map[string]bool, len(requirement.Evidence))
 	validatedEvidence := make([]Evidence, 0, len(requirement.Evidence))
@@ -488,6 +531,12 @@ func normalizeRequirement(requirement *Requirement, requireID bool, transcript *
 		evidence.Quote = strings.TrimSpace(evidence.Quote)
 		if evidence.Quote == "" {
 			if transcript != nil {
+				addRequirementProblem(requirement, RequirementProblem{
+					Code:    "evidence_quote_missing",
+					Field:   fmt.Sprintf("evidence[%d].quote", i+1),
+					Message: "The source quote is empty and was removed.",
+					Action:  "removed",
+				})
 				continue
 			}
 			return fmt.Errorf("evidence %d quote is required", i+1)
@@ -495,12 +544,26 @@ func normalizeRequirement(requirement *Requirement, requireID bool, transcript *
 		normalizedQuote := normalizeText(evidence.Quote)
 		if normalizedQuote == "" {
 			if transcript != nil {
+				addRequirementProblem(requirement, RequirementProblem{
+					Code:    "evidence_quote_unsearchable",
+					Field:   fmt.Sprintf("evidence[%d].quote", i+1),
+					Message: "The source quote has no searchable text and was removed.",
+					Value:   evidence.Quote,
+					Action:  "removed",
+				})
 				continue
 			}
 			return fmt.Errorf("evidence %d quote has no searchable text", i+1)
 		}
 		if transcript != nil {
 			if !containsNormalized(transcript.Content, evidence.Quote) {
+				addRequirementProblem(requirement, RequirementProblem{
+					Code:    "evidence_quote_unverifiable",
+					Field:   fmt.Sprintf("evidence[%d].quote", i+1),
+					Message: "The source quote does not occur in the transcript and was removed.",
+					Value:   evidence.Quote,
+					Action:  "removed",
+				})
 				continue
 			}
 			evidence.ArtifactID = transcript.ID
@@ -509,6 +572,13 @@ func normalizeRequirement(requirement *Requirement, requireID bool, transcript *
 		}
 		if seenQuotes[normalizedQuote] {
 			if transcript != nil {
+				addRequirementProblem(requirement, RequirementProblem{
+					Code:    "evidence_duplicate",
+					Field:   fmt.Sprintf("evidence[%d].quote", i+1),
+					Message: "The source quote duplicates another verified quote and was removed.",
+					Value:   evidence.Quote,
+					Action:  "removed",
+				})
 				continue
 			}
 			return fmt.Errorf("evidence contains duplicate quote %q", evidence.Quote)
@@ -516,11 +586,71 @@ func normalizeRequirement(requirement *Requirement, requireID bool, transcript *
 		seenQuotes[normalizedQuote] = true
 		validatedEvidence = append(validatedEvidence, *evidence)
 	}
-	if len(validatedEvidence) == 0 {
-		return fmt.Errorf("evidence has no quote that can be verified in the transcript")
-	}
 	requirement.Evidence = validatedEvidence
+	if len(validatedEvidence) == 0 {
+		if transcript == nil && len(requirement.Problems) == 0 {
+			return fmt.Errorf("evidence has no quote that can be verified in the transcript")
+		}
+		if transcript != nil {
+			addRequirementProblem(requirement, RequirementProblem{
+				Code:    "evidence_unverifiable",
+				Field:   "evidence",
+				Message: "No source quote could be verified in the transcript; the requirement was marked pending for review.",
+				Action:  "marked_pending",
+			})
+			markRequirementPending(requirement)
+		}
+	}
 	return nil
+}
+
+func normalizeProblems(problems []RequirementProblem) error {
+	for i := range problems {
+		problems[i].Code = strings.TrimSpace(problems[i].Code)
+		problems[i].Field = strings.TrimSpace(problems[i].Field)
+		problems[i].Message = strings.TrimSpace(problems[i].Message)
+		problems[i].Value = strings.TrimSpace(problems[i].Value)
+		problems[i].Action = strings.TrimSpace(problems[i].Action)
+		if problems[i].Code == "" {
+			return fmt.Errorf("problem %d code is required", i+1)
+		}
+		if problems[i].Message == "" {
+			return fmt.Errorf("problem %d message is required", i+1)
+		}
+	}
+	return nil
+}
+
+func addRequirementProblem(requirement *Requirement, problem RequirementProblem) {
+	requirement.Problems = append(requirement.Problems, problem)
+}
+
+func markRequirementPending(requirement *Requirement) {
+	if requirement.Status != StatusConfirmed {
+		return
+	}
+	requirement.Status = StatusPending
+	addRequirementProblem(requirement, RequirementProblem{
+		Code:    "status_downgraded",
+		Field:   "status",
+		Message: "The confirmed status was changed to pending because the requirement has no verified evidence.",
+		Action:  "downgraded",
+	})
+}
+
+func requirementValidationIssues(requirement Requirement) []domain.ValidationIssue {
+	issues := make([]domain.ValidationIssue, 0, len(requirement.Problems))
+	for _, problem := range requirement.Problems {
+		issues = append(issues, domain.ValidationIssue{
+			Code:    problem.Code,
+			Item:    requirement.ID,
+			Field:   problem.Field,
+			Message: problem.Message,
+			Value:   problem.Value,
+			Action:  problem.Action,
+		})
+	}
+	return issues
 }
 
 func validateRequirementFields(id string, requirementType RequirementType, statement string, status RequirementStatus, requireID bool) error {

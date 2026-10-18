@@ -50,7 +50,32 @@ func TestWriteRequirementsMarkdownIncludesTraceabilityAndMermaid(t *testing.T) {
 	}
 }
 
-func TestWriteRequirementsMarkdownRejectsInvalidStructuredRequirements(t *testing.T) {
+func TestWriteRequirementsMarkdownIncludesRequirementProblems(t *testing.T) {
+	audit := domain.AuditRun{
+		Meeting: domain.Meeting{ID: "meeting-1", Title: "Reunião", Language: "pt-BR"},
+		Run:     domain.PipelineRun{ID: "run-1", Status: domain.StatusCompletedWithIssues},
+		Artifacts: []domain.Artifact{{
+			Type:    domain.ArtifactRefinedRequirements,
+			Content: `{"requirements":[{"id":"REQ-0001","type":"functional","statement":"O sistema deve emitir nota fiscal.","status":"pending","evidence":[],"problems":[{"code":"evidence_quote_unverifiable","field":"evidence[1].quote","message":"The source quote does not occur in the transcript and was removed.","value":"O sistema precisa emitir nota fiscal.","action":"removed"}],"related_gap_ids":[]}],"open_gaps":[]}`,
+		}},
+	}
+
+	path, err := export.WriteRequirementsMarkdown(t.TempDir(), audit)
+	if err != nil {
+		t.Fatalf("write markdown with requirement problem: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read markdown: %v", err)
+	}
+	for _, want := range []string{"Problemas de validação", "evidence_quote_unverifiable", "evidence[1].quote", "O sistema precisa emitir nota fiscal."} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("markdown missing requirement problem %q", want)
+		}
+	}
+}
+
+func TestWriteRequirementsMarkdownFallsBackForInvalidStructuredRequirements(t *testing.T) {
 	audit := domain.AuditRun{
 		Meeting: domain.Meeting{ID: "meeting-1"},
 		Run:     domain.PipelineRun{ID: "run-1"},
@@ -59,9 +84,52 @@ func TestWriteRequirementsMarkdownRejectsInvalidStructuredRequirements(t *testin
 		},
 	}
 
-	_, err := export.WriteRequirementsMarkdown(t.TempDir(), audit)
-	if err == nil || !strings.Contains(err.Error(), "open_gaps") {
-		t.Fatalf("error = %v, want structured requirements validation error", err)
+	path, err := export.WriteRequirementsMarkdown(t.TempDir(), audit)
+	if err != nil {
+		t.Fatalf("write fallback markdown: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read markdown: %v", err)
+	}
+	for _, want := range []string{"## Diagnóstico do processamento", "open_gaps", "saída parcial"} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("markdown missing fallback detail %q", want)
+		}
+	}
+}
+
+func TestWriteRequirementsMarkdownExportsTranscriptWhenPipelineFails(t *testing.T) {
+	audit := domain.AuditRun{
+		Meeting: domain.Meeting{ID: "meeting-1", Title: "Reunião", Language: "pt-BR"},
+		Run: domain.PipelineRun{
+			ID:     "run-1",
+			Status: domain.StatusFailed,
+			Error:  "stage requirement_extraction: provider failed",
+		},
+		Stages: []domain.StageExecution{{
+			Name:   domain.StageRequirementExtraction,
+			Status: domain.StatusFailed,
+			Error:  "provider failed",
+		}},
+		Artifacts: []domain.Artifact{{
+			Type:    domain.ArtifactTranscript,
+			Content: "Cliente: preciso acompanhar o pedido.",
+		}},
+	}
+
+	path, err := export.WriteRequirementsMarkdown(t.TempDir(), audit)
+	if err != nil {
+		t.Fatalf("write transcript fallback markdown: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read markdown: %v", err)
+	}
+	for _, want := range []string{"stage requirement_extraction: provider failed", "## Transcrição disponível", "preciso acompanhar o pedido"} {
+		if !strings.Contains(string(content), want) {
+			t.Fatalf("markdown missing failure fallback detail %q", want)
+		}
 	}
 }
 

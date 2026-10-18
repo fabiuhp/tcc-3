@@ -116,6 +116,8 @@ Por padrão, o servidor escuta somente em `127.0.0.1:8080`. Abra `http://127.0.0
 
 Uploads são salvos temporariamente em `uploads/` e removidos ao final da requisição. Documentos Markdown são salvos em `output/` e servidos por `/downloads/<arquivo>.md`.
 
+Falhas de validação são registradas com a etapa, requisito, campo, motivo e ação tomada. Evidências não verificáveis são removidas e o requisito é marcado como `pending` quando não resta nenhuma evidência válida. Mesmo quando uma etapa falha, a aplicação tenta gerar um Markdown parcial com os artefatos disponíveis e inclui o diagnóstico do processamento.
+
 O parâmetro `-addr` permite alterar o endereço, mas publicar o serviço em outra interface exige que autenticação, TLS, controle de acesso e proteção da rede sejam implementados externamente.
 
 ## Fluxo Da Pipeline

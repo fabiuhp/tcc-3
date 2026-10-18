@@ -51,6 +51,7 @@ type Server struct {
 type pageData struct {
 	DefaultLanguage string
 	Error           string
+	Warning         string
 	Success         string
 	DownloadURL     string
 	DownloadName    string
@@ -124,27 +125,93 @@ func (s *Server) process(w http.ResponseWriter, r *http.Request) {
 		title = strings.TrimSuffix(originalName, filepath.Ext(originalName))
 	}
 
-	run, err := s.runner.Run(r.Context(), pipeline.RunInput{Title: title, AudioFile: audioPath, Language: language})
-	if err != nil {
-		s.logger.Printf("run pipeline: %v", err)
-		s.render(w, pageData{DefaultLanguage: language, Error: "Nao foi possivel processar o audio. Verifique a configuracao e tente novamente."})
-		return
+	run, pipelineErr := s.runner.Run(r.Context(), pipeline.RunInput{Title: title, AudioFile: audioPath, Language: language})
+	if pipelineErr != nil {
+		s.logger.Printf("pipeline failed run_id=%s error=%v", run.ID, pipelineErr)
+		if run.ID == "" {
+			s.render(w, pageData{DefaultLanguage: language, Error: formatPipelineError(pipelineErr)})
+			return
+		}
+	}
+	for _, issue := range run.ValidationIssues {
+		s.logger.Printf("pipeline validation issue run_id=%s stage=%s item=%s field=%s code=%s action=%s value=%q message=%s", run.ID, issue.Stage, issue.Item, issue.Field, issue.Code, issue.Action, issue.Value, issue.Message)
 	}
 
-	markdownPath, err := s.exporter.Export(r.Context(), run.ID)
-	if err != nil {
-		s.logger.Printf("export markdown: %v", err)
-		s.render(w, pageData{DefaultLanguage: language, Error: "O processamento terminou, mas nao foi possivel gerar o Markdown."})
+	markdownPath, exportErr := s.exporter.Export(r.Context(), run.ID)
+	if exportErr != nil {
+		s.logger.Printf("export markdown run_id=%s error=%v", run.ID, exportErr)
+		message := fmt.Sprintf("Nao foi possivel gerar o Markdown: %v", exportErr)
+		if pipelineErr != nil {
+			message = fmt.Sprintf("%s. %s", formatPipelineError(pipelineErr), message)
+		}
+		s.render(w, pageData{DefaultLanguage: language, Error: message})
 		return
 	}
 
 	name := filepath.Base(markdownPath)
-	s.render(w, pageData{
+	success := "Markdown gerado com sucesso."
+	if pipelineErr != nil {
+		success = "Markdown parcial gerado com ressalvas. Consulte o diagnostico no documento."
+	} else if run.Status == domain.StatusCompletedWithIssues {
+		success = "Markdown gerado com ressalvas. Consulte os problemas de validacao no documento."
+	}
+	data := pageData{
 		DefaultLanguage: language,
-		Success:         "Markdown gerado com sucesso.",
+		Success:         success,
 		DownloadURL:     "/downloads/" + url.PathEscape(name),
 		DownloadName:    name,
+	}
+	if pipelineErr != nil {
+		data.Error = formatPipelineError(pipelineErr)
+	}
+	if len(run.ValidationIssues) > 0 {
+		data.Warning = formatValidationIssues(run.ValidationIssues)
+	}
+	s.render(w, pageData{
+		DefaultLanguage: data.DefaultLanguage,
+		Error:           data.Error,
+		Warning:         data.Warning,
+		Success:         data.Success,
+		DownloadURL:     data.DownloadURL,
+		DownloadName:    data.DownloadName,
 	})
+}
+
+func formatPipelineError(err error) string {
+	var stageErr pipeline.StageError
+	if errors.As(err, &stageErr) {
+		return fmt.Sprintf("Falha na etapa %q: %s", stageErr.Stage, stageErr.Err)
+	}
+	return fmt.Sprintf("Falha no processamento: %s", err)
+}
+
+func formatValidationIssues(issues []domain.ValidationIssue) string {
+	details := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		locationParts := []string{}
+		if issue.Stage != "" {
+			locationParts = append(locationParts, string(issue.Stage))
+		}
+		if issue.Item != "" {
+			locationParts = append(locationParts, issue.Item)
+		}
+		if issue.Field != "" {
+			locationParts = append(locationParts, issue.Field)
+		}
+		location := strings.Join(locationParts, " / ")
+		if location == "" {
+			location = issue.Code
+		}
+		message := issue.Message
+		if issue.Value != "" {
+			message = fmt.Sprintf("%s Valor rejeitado: %q", message, issue.Value)
+		}
+		if issue.Action != "" {
+			message = fmt.Sprintf("%s Acao tomada: %s", message, issue.Action)
+		}
+		details = append(details, fmt.Sprintf("%s: %s", location, message))
+	}
+	return "Processamento concluido com ressalvas: " + strings.Join(details, " | ")
 }
 
 func (s *Server) saveUpload(w http.ResponseWriter, r *http.Request) (string, string, error) {

@@ -11,6 +11,7 @@ import (
 	"github.com/fabiuhp/tcc-3/internal/ports"
 	"github.com/fabiuhp/tcc-3/internal/prompts"
 	"github.com/fabiuhp/tcc-3/internal/providers"
+	"github.com/fabiuhp/tcc-3/internal/requirements"
 	"github.com/fabiuhp/tcc-3/internal/stages"
 )
 
@@ -65,6 +66,37 @@ func TestDefaultStagesProduceExpectedArtifactTypes(t *testing.T) {
 	}
 	if len(wantTypes) != 0 {
 		t.Fatalf("missing artifact types: %+v", wantTypes)
+	}
+}
+
+func TestRequirementExtractionReportsAndRetainsUnverifiableEvidence(t *testing.T) {
+	provider := &recordingTextProvider{response: `{"requirements":[{"type":"functional","statement":"O sistema deve emitir nota fiscal.","status":"confirmed","evidence":[{"quote":"O sistema precisa emitir nota fiscal."}]}]}`}
+	defaultPrompts := prompts.Defaults(time.Now().UTC())
+	pipelineStages := stages.DefaultStages(nil, provider, prompts.Registry(defaultPrompts), stages.Models{Text: "gpt-5"})
+
+	result, err := pipelineStages[1].Execute(context.Background(), pipeline.StageContext{
+		Meeting: domain.Meeting{Language: "pt-BR"},
+		Artifacts: []domain.Artifact{{
+			ID:      "transcript-1",
+			Type:    domain.ArtifactTranscript,
+			Content: "Cliente: preciso acompanhar o pedido.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("extract requirements: %v", err)
+	}
+	if len(result.ValidationIssues) < 2 {
+		t.Fatalf("validation issues = %+v, want evidence and status issues", result.ValidationIssues)
+	}
+	document, err := requirements.ParseDraft(result.Artifacts[0].Content)
+	if err != nil {
+		t.Fatalf("parse retained draft: %v", err)
+	}
+	if document.Requirements[0].Status != requirements.StatusPending {
+		t.Fatalf("status = %q, want pending", document.Requirements[0].Status)
+	}
+	if len(document.Requirements[0].Evidence) != 0 || len(document.Requirements[0].Problems) < 2 {
+		t.Fatalf("retained requirement = %+v, want no evidence and validation problems", document.Requirements[0])
 	}
 }
 

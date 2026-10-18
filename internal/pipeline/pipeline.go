@@ -16,6 +16,19 @@ type Stage interface {
 	Execute(context.Context, StageContext) (StageResult, error)
 }
 
+type StageError struct {
+	Stage domain.StageName
+	Err   error
+}
+
+func (e StageError) Error() string {
+	return fmt.Sprintf("stage %s: %v", e.Stage, e.Err)
+}
+
+func (e StageError) Unwrap() error {
+	return e.Err
+}
+
 type StageContext struct {
 	Meeting   domain.Meeting
 	Run       domain.PipelineRun
@@ -24,9 +37,10 @@ type StageContext struct {
 }
 
 type StageResult struct {
-	Artifacts []domain.Artifact
-	Model     string
-	Tokens    domain.TokenMetrics
+	Artifacts        []domain.Artifact
+	Model            string
+	Tokens           domain.TokenMetrics
+	ValidationIssues []domain.ValidationIssue
 }
 
 type Runner struct {
@@ -87,6 +101,8 @@ func (r *Runner) Run(ctx context.Context, input RunInput) (domain.PipelineRun, e
 		stage.DurationMillis = finished.Sub(stageStart).Milliseconds()
 		stage.Model = result.Model
 		stage.Tokens = result.Tokens
+		stage.ValidationIssues = issuesForStage(result.ValidationIssues, pipelineStage.Name())
+		run.ValidationIssues = append(run.ValidationIssues, stage.ValidationIssues...)
 
 		if execErr != nil {
 			stage.Status = domain.StatusFailed
@@ -95,9 +111,10 @@ func (r *Runner) Run(ctx context.Context, input RunInput) (domain.PipelineRun, e
 			run.Status = domain.StatusFailed
 			run.FinishedAt = &finished
 			run.FailedStageID = stage.ID
-			run.Error = execErr.Error()
+			failure := StageError{Stage: pipelineStage.Name(), Err: execErr}
+			run.Error = failure.Error()
 			_ = r.store.UpdatePipelineRun(ctx, run)
-			return run, execErr
+			return run, failure
 		}
 
 		for i := range result.Artifacts {
@@ -111,6 +128,9 @@ func (r *Runner) Run(ctx context.Context, input RunInput) (domain.PipelineRun, e
 			return domain.PipelineRun{}, err
 		}
 		stage.Status = domain.StatusCompleted
+		if len(stage.ValidationIssues) > 0 {
+			stage.Status = domain.StatusCompletedWithIssues
+		}
 		stage.OutputArtifactIDs = artifactIDs(created)
 		if err := r.store.UpdateStage(ctx, stage); err != nil {
 			return domain.PipelineRun{}, err
@@ -120,6 +140,10 @@ func (r *Runner) Run(ctx context.Context, input RunInput) (domain.PipelineRun, e
 
 	finished := r.now()
 	run.Status = domain.StatusCompleted
+	if len(run.ValidationIssues) > 0 {
+		run.Status = domain.StatusCompletedWithIssues
+		run.Error = fmt.Sprintf("pipeline completed with %d validation issue(s)", len(run.ValidationIssues))
+	}
 	run.FinishedAt = &finished
 	if err := r.store.UpdatePipelineRun(ctx, run); err != nil {
 		return domain.PipelineRun{}, err
@@ -163,4 +187,18 @@ func artifactIDs(artifacts []domain.Artifact) []string {
 		ids = append(ids, artifact.ID)
 	}
 	return ids
+}
+
+func issuesForStage(issues []domain.ValidationIssue, stage domain.StageName) []domain.ValidationIssue {
+	if len(issues) == 0 {
+		return nil
+	}
+	assigned := make([]domain.ValidationIssue, len(issues))
+	copy(assigned, issues)
+	for i := range assigned {
+		if assigned[i].Stage == "" {
+			assigned[i].Stage = stage
+		}
+	}
+	return assigned
 }

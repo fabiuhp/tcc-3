@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -123,6 +124,54 @@ func TestServerProcessesUploadAndReturnsDownload(t *testing.T) {
 	}
 }
 
+func TestServerExportsMarkdownAfterPipelineFailure(t *testing.T) {
+	runner := &fakeRunner{runID: "run-failed", err: pipeline.StageError{Stage: domain.StageRequirementExtraction, Err: errors.New("evidence validation failed")}}
+	server := newTestServer(t, runner, &fakeExporter{})
+	body, contentType := multipartBody(t, "audio", "meeting.mp3", "fake audio")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/process", body)
+	request.Header.Set("Content-Type", contentType)
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	response := recorder.Body.String()
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	for _, want := range []string{"Falha na etapa", "requirement_extraction", "evidence validation failed", "Markdown parcial gerado", "/downloads/result.md"} {
+		if !strings.Contains(response, want) {
+			t.Fatalf("response missing failure fallback detail %q", want)
+		}
+	}
+}
+
+func TestServerShowsValidationIssuesAndReturnsDownload(t *testing.T) {
+	runner := &fakeRunner{
+		runID: "run-with-issues",
+		validationIssues: []domain.ValidationIssue{{
+			Stage:   domain.StageRequirementExtraction,
+			Code:    "evidence_quote_unverifiable",
+			Item:    "REQ-0001",
+			Field:   "evidence[1].quote",
+			Message: "The source quote does not occur in the transcript and was removed.",
+		}},
+	}
+	server := newTestServer(t, runner, &fakeExporter{})
+	body, contentType := multipartBody(t, "audio", "meeting.mp3", "fake audio")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/process", body)
+	request.Header.Set("Content-Type", contentType)
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	response := recorder.Body.String()
+	for _, want := range []string{"Processamento concluido com ressalvas", "REQ-0001", "evidence[1].quote", "/downloads/result.md"} {
+		if !strings.Contains(response, want) {
+			t.Fatalf("response missing validation detail %q", want)
+		}
+	}
+}
+
 func TestServerServesMarkdownDownloadWithHeaders(t *testing.T) {
 	outputDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outputDir, "result.md"), []byte("# Requirements"), 0o644); err != nil {
@@ -187,22 +236,23 @@ func multipartBody(t *testing.T, field string, name string, content string) (io.
 }
 
 type fakeRunner struct {
-	calls     int
-	runID     string
-	lastInput pipeline.RunInput
-	err       error
+	calls            int
+	runID            string
+	lastInput        pipeline.RunInput
+	err              error
+	validationIssues []domain.ValidationIssue
 }
 
 func (f *fakeRunner) Run(_ context.Context, input pipeline.RunInput) (domain.PipelineRun, error) {
 	f.calls++
 	f.lastInput = input
 	if f.err != nil {
-		return domain.PipelineRun{}, f.err
+		return domain.PipelineRun{ID: f.runID, Status: domain.StatusFailed}, f.err
 	}
 	if f.runID == "" {
 		f.runID = "run-id"
 	}
-	return domain.PipelineRun{ID: f.runID, Status: domain.StatusCompleted}, nil
+	return domain.PipelineRun{ID: f.runID, Status: domain.StatusCompleted, ValidationIssues: f.validationIssues}, nil
 }
 
 type fakeExporter struct {
